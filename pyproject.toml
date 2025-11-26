@@ -1,0 +1,23 @@
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "steering"
+version = "0.1.0"
+description = "AI agent behavioral management system"
+readme = "AGENTS.md"
+requires-python = ">=3.12"
+dependencies = ["click>=8.1.0", "pyyaml>=6.0", "rich>=13.0.0"]
+
+[project.scripts]
+steering = "steering.generators.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["steering*"]
+exclude = ["rules*", "data*", "tests*", ".*", "scripts*"]
+
+[tool.setuptools.package-data]
+steering = ["py.typed"]
