@@ -1,0 +1,79 @@
+# Steering Default Configuration
+# Version 1.0
+
+version: 1.0
+
+# Vendor-specific output files/directories
+vendor_files:
+  cursor: .cursor/rules                      # Directory for Cursor rule symlinks
+  claude: CLAUDE.md                          # File for Claude @ references
+  continue: .continue/rules                  # Directory for Continue.dev rule symlinks
+  copilot: .github/copilot-instructions.md   # GitHub Copilot instructions
+  gemini: GEMINI.md                          # File for Gemini CLI @ references (symlinked to CLAUDE.md)
+
+# Default vendor to use if not specified (legacy, use default_vendors instead)
+default_vendor: all
+
+# List of vendors to enable when --vendor=all or no vendor specified
+# Available: cursor, claude, continue, copilot, gemini
+default_vendors:
+  - cursor
+  - claude
+  - gemini
+
+# Glob patterns for discovering rules
+# All patterns are relative to the input directory
+# NOTE: Using single * to only match top-level files, not subdirectories
+# This allows atoms/ subdirectories to exist for @ references only
+auto_rules_glob: "rules/auto-rules/*.mdc"
+contextual_rules_glob: "rules/contextual-rules/*.mdc"
+
+# Pattern for discovering local AGENTS files throughout the repository
+# This searches from the output directory (repository root)
+agents_glob: "**/AGENTS.{md,mdc}"
+
+# Directories to ignore during AGENTS file discovery
+ignored_directories:
+  - .git
+  - node_modules
+  - .cursor
+  - .continue
+  - result
+  - result-*
+  - .direnv
+  - __pycache__
+  - "*.egg-info"
+  # Don't discover rules in the steering project itself
+  - rules
+
+# Vendor-specific settings
+cursor:
+  # For AGENTS files, generate .cursor/rules/*.mdc files with scoped globs to make cursor agents auto-discover our directory-local AGENTS.md files
+  scope_agents_to_directory: true
+
+claude:
+  # Include auto-rules directly via @ references
+  auto_include: true
+  # List contextual rules with descriptions for on-demand loading
+  contextual_on_demand: true
+
+continue:
+  # Symlink rules directly like Cursor
+  use_symlinks: true
+  # For AGENTS files, create special .md files with directory-scoped globs
+  scope_agents_to_directory: true
+
+copilot:
+  # Repository-wide instructions from auto-rules
+  copilot_instructions_from_auto: true
+  # Path-specific instructions from contextual rules
+  path_specific_from_contextual: true
+  # AGENTS.md files are supported natively (no generation needed)
+  native_agents_support: true
+
+gemini:
+  # Include auto-rules directly via @ references
+  auto_include: true
+  # List contextual rules with descriptions for on-demand loading
+  contextual_on_demand: true
+

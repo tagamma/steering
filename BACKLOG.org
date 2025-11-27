@@ -1,0 +1,21 @@
+* TODO [#A] Make the project not require nix (especially git hook)
+* TODO [#B] Make the tool installable via pip or smth
+* TODO [#B] Add examples of how I use it (specific rules, etc)
+
+* TODO [#C] Add a table with adapters statuses (i.e.g I am not testing GitHub, continue.dev, etc
+* TODO [#C] Move over docs from my nix config repo to here
+* TODO [#C] Document my approach to workflows which are like somewhere between system prompts for specific processes and Claude's skills (or superpowers)
+* TODO [#C] Create an adapter for Kiro 
+* DONE Create an adapter for Continue.dev
+  CLOSED: [2025-10-07 Tue]
+  - Implemented using hybrid approach (Option 3)
+  - Symlinks auto/contextual rules like Cursor
+  - Creates special .md files for AGENTS with directory globs
+  - @ references preserved as-is (not embedded)
+* DONE Create an adapter for Copilot
+  CLOSED: [2025-10-07 Tue]
+  - Generates .github/copilot-instructions.md from auto-rules
+  - Generates .github/instructions/*.instructions.md from contextual rules
+  - AGENTS.md files supported natively by Copilot (no generation needed!)
+  - Uses frontmatter with applyTo for path-specific instructions
+
