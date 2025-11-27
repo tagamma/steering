@@ -1,6 +1,6 @@
 # Steering - AI Agent Behavioral Management System
 
-> **Status:** This project started as a purely personal tool for my monorepo. I'm open sourcing it because I believe it might be useful to others. If there is initial traction, I will make it more convenient to use (e.g. easier installation) and add missing functionality.
+> **Status:** This project started as a purely personal tool for my NixOS config monorepo. I'm open sourcing it because I believe it might be useful to others. If there is initial traction, I will make it more convenient to use (e.g. easier installation) and add missing functionality.
 
 Steering provides a provider-agnostic system for managing and steering AI agents (Claude Code, Cursor, Gemini CLI, etc.) through structured behavioral rules and contextual guidance. It centralizes rule management and generates vendor-specific configuration files automatically.
 
@@ -84,10 +84,10 @@ steering/
 
 Currently, the expected workflow is:
 
-1.  **Clone locally**: Clone this repository to your machine.
-2.  **Pre-commit Hook**: Copy the hook from `resources/hooks/pre-commit` to your target repository's `.git/hooks/pre-commit` and update it to point to your `steering` installation.
-3.  **Manual CLI**: You can also manually invoke the `steering` CLI from your repository root.
-4.  **Nix**: If you use Nix, you can run it directly: `nix run github:tagamma/nix-config?dir=projects/steering`.
+1. **Clone locally**: Clone this repository to your machine.
+2. **Pre-commit Hook (if using nix)**: Use the `pre-commit-nix` hook if you use (copy `resources/hooks/pre-commit-nix` to your target repository's `.git/hooks/pre-commit`).
+3. **Pre-commit Hook (if not using nix)**: Copy the hook from `resources/hooks/pre-commit-manual` to your target repository's `.git/hooks/pre-commit` and update it to point to your `steering` installation.
+4. **Invoke CLI via Nix (if using nix)**: If you use Nix, you can invoke the CLI directly: `nix run github:tagamma/steering`.
 
 In the future, this process will be streamlined.
 
