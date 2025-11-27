@@ -78,18 +78,19 @@ steering/
 └── pyproject.toml              # Dependencies
 ```
 
-## Key Features
+## Usage
 
 ### Expected Usage Pattern
 
 Currently, the expected workflow is:
 
 1. **Clone locally**: Clone this repository to your machine.
-2. **Pre-commit Hook (if using nix)**: Use the `pre-commit-nix` hook if you use (copy `resources/hooks/pre-commit-nix` to your target repository's `.git/hooks/pre-commit`).
-3. **Pre-commit Hook (if not using nix)**: Copy the hook from `resources/hooks/pre-commit-manual` to your target repository's `.git/hooks/pre-commit` and update it to point to your `steering` installation.
-4. **Invoke CLI via Nix (if using nix)**: If you use Nix, you can invoke the CLI directly: `nix run github:tagamma/steering`.
-
-In the future, this process will be streamlined.
+2. **Pre-commit Hook**: Setup a git hook to automatically regenerate configs when rules change.
+   - **Nix Users**: Copy `resources/hooks/pre-commit-nix` to `.git/hooks/pre-commit`.
+   - **Manual Users**: Copy `resources/hooks/pre-commit-manual` to `.git/hooks/pre-commit` (ensure `steering` is in your PATH).
+   - Make it executable: `chmod +x .git/hooks/pre-commit`.
+3. **Manual CLI**: You can also manually invoke the `steering` CLI from your repository root.
+4. **Nix Run**: If you use Nix, you can invoke the CLI directly without cloning as well: `nix run github:tagamma/steering`.
 
 ### Basic Commands
 

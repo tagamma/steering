@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
-# Shared pre-commit hook for steering
+# Shared pre-commit hook for steering (Manual version)
 # Automatically calls the steering tool to regenerate AI configurations.
 #
 # This script is intended to be copied to .git/hooks/pre-commit in repositories
-# that use the steering system.
+# that use the steering system where 'steering' is available in the PATH (e.g. via pip).
 
 set -e
 
 # --- Configuration ---
 # You can override these by setting environment variables or modifying this section.
 
-# The URI of the steering flake.
-# We use the one from tagamma/nix-config.
-# Using git+ssh to ensure we use SSH keys for authentication if the repo is private.
-# Added shallow=1 to avoid downloading the entire git history
-STEERING_FLAKE_URI="${STEERING_FLAKE_URI:-git+ssh://git@github.com/tagamma/nix-config?dir=projects/steering&shallow=1}"
+# The steering executable to use.
+STEERING_CMD="${STEERING_CMD:-steering}"
 
 # Path to the steering configuration file.
 STEERING_CONFIG="${STEERING_CONFIG:-steering.yaml}"
@@ -24,7 +21,12 @@ STEERING_CONFIG="${STEERING_CONFIG:-steering.yaml}"
 # Check if the config file exists
 if [ ! -f "$STEERING_CONFIG" ]; then
     # If no config file, silent exit (maybe not configured for this repo)
-    # Or maybe we should warn? For now, let's just check if relevant files changed first.
+    exit 0
+fi
+
+# Check if steering is installed
+if ! command -v "$STEERING_CMD" &> /dev/null; then
+    echo "WARNING: '$STEERING_CMD' command not found. Skipping AI configuration regeneration."
     exit 0
 fi
 
@@ -43,9 +45,8 @@ echo "$relevant_files" | sed 's/^/  - /'
 echo ""
 echo "Regenerating AI configurations with steering..."
 
-# Run steering
-# We use `nix run` to execute steering from the remote flake.
-if ! nix run "$STEERING_FLAKE_URI" -- generate --input . --output . --config-path "$STEERING_CONFIG"; then
+# Run steering directly
+if ! "$STEERING_CMD" generate --input . --output . --config-path "$STEERING_CONFIG"; then
     echo ""
     echo "Failed to regenerate AI configurations."
     echo "Please fix the errors above and try committing again."
@@ -64,7 +65,6 @@ if [ -n "$generated_files" ]; then
     echo "Staging generated files..."
 
     # Stage generated files
-    # We try to be specific to avoid adding unwanted files
     
     # .cursor/rules
     if [ -d ".cursor/rules" ]; then
