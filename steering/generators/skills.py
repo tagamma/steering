@@ -67,11 +67,16 @@ def sync_skills(
     if not active_destinations:
         return files
 
+    skill_names = {d.name for d in skill_dirs}
+
     for vendor, dest_rel_path in active_destinations.items():
         dest_dir = output_dir / dest_rel_path
 
         if not dry_run:
             dest_dir.mkdir(parents=True, exist_ok=True)
+            # Clean up stale symlinks: symlinks that point into shared_path
+            # but whose target no longer exists (skill was removed)
+            _cleanup_stale_skill_symlinks(dest_dir, shared_path, skill_names)
 
         for skill_dir in skill_dirs:
             skill_name = skill_dir.name
@@ -124,3 +129,51 @@ def sync_skills(
                 link_path.symlink_to(relative_target)
 
     return files
+
+
+def _cleanup_stale_skill_symlinks(
+    dest_dir: Path,
+    shared_path: Path,
+    current_skill_names: set[str],
+) -> None:
+    """Remove symlinks in dest_dir that point into shared_path but are stale.
+
+    A symlink is stale if it points into the shared skills directory but the
+    target no longer exists (the skill was removed from shared_path).
+
+    Only touches symlinks whose resolved target falls under shared_path.
+    Non-symlink entries and symlinks pointing elsewhere are left alone.
+
+    Args:
+        dest_dir: The vendor's skills destination directory
+        shared_path: The shared skills source directory
+        current_skill_names: Names of skills currently in shared_path
+    """
+    if not dest_dir.is_dir():
+        return
+
+    shared_resolved = shared_path.resolve()
+
+    for entry in dest_dir.iterdir():
+        if not entry.is_symlink():
+            continue
+
+        # Resolve where this symlink points
+        try:
+            target_resolved = (dest_dir / os.readlink(entry)).resolve()
+        except (OSError, ValueError):
+            continue
+
+        # Only touch symlinks that point into the shared skills directory
+        try:
+            target_resolved.relative_to(shared_resolved)
+        except ValueError:
+            continue
+
+        # If the skill name is no longer in shared_path, remove the stale symlink
+        if entry.name not in current_skill_names:
+            try:
+                entry.unlink()
+                print(f"Removed stale skill symlink: {entry}")
+            except OSError as e:
+                print(f"WARN: Failed to remove stale symlink {entry}: {e}")
