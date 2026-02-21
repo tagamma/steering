@@ -10,6 +10,7 @@ from rich.table import Table
 from .config import load_config
 from .generator import RuleLoader
 from .models import validate_ruleset
+from .skills import SkillConflictError, sync_skills
 from .adapters import (
     CursorAdapter,
     ClaudeAdapter,
@@ -151,6 +152,26 @@ def generate(input, output, vendor, dry_run, config_path):
             console.print(
                 f"[red]ERROR: Failed to generate {vendor_name} config:[/red] {e}"
             )
+            import traceback
+
+            traceback.print_exc()
+            sys.exit(1)
+
+    # Sync shared skills
+    if config.skills_shared_path:
+        console.print("[cyan]Syncing shared skills...[/cyan]")
+        try:
+            skill_files = sync_skills(config, output_dir, vendors, dry_run=dry_run)
+            all_files.update(skill_files)
+            if skill_files:
+                console.print(f"  ✅ Synced {len(skill_files)} skill symlink(s)\n")
+            else:
+                console.print("  [dim]No shared skills found[/dim]\n")
+        except SkillConflictError as e:
+            console.print(f"[red]ERROR: Skill conflict:[/red] {e}")
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]ERROR: Failed to sync skills:[/red] {e}")
             import traceback
 
             traceback.print_exc()

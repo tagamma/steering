@@ -31,6 +31,13 @@ class Config:
         self.ignored_directories = self._data.get("ignored_directories", [])
         self.included_rules = self._data.get("included_rules", [])
 
+        # Skills configuration
+        skills_data = self._data.get("skills", {})
+        self.skills_shared_path: str = skills_data.get("shared_path", "")
+        self.skills_vendor_destinations: Dict[str, str] = skills_data.get(
+            "vendor_destinations", {}
+        )
+
         # Vendor-specific settings
         self.cursor_settings = self._data.get("cursor", {})
         self.claude_settings = self._data.get("claude", {})
@@ -60,6 +67,18 @@ class Config:
                 if vendor not in valid_vendors:
                     issues.append(
                         f"Invalid vendor in default_vendors: '{vendor}'. "
+                        f"Must be one of: {', '.join(valid_vendors)}"
+                    )
+
+        # Validate skills configuration
+        if not isinstance(self.skills_vendor_destinations, dict):
+            issues.append("'skills.vendor_destinations' must be a dictionary")
+        else:
+            valid_vendors = ["cursor", "claude", "continue", "copilot", "gemini"]
+            for vendor in self.skills_vendor_destinations:
+                if vendor not in valid_vendors:
+                    issues.append(
+                        f"Invalid vendor in skills.vendor_destinations: '{vendor}'. "
                         f"Must be one of: {', '.join(valid_vendors)}"
                     )
 

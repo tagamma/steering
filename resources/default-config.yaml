@@ -77,3 +77,32 @@ gemini:
   # List contextual rules with descriptions for on-demand loading
   contextual_on_demand: true
 
+# Skills configuration
+# Skills are tool-agnostic directories that get symlinked into each vendor's
+# skills location. This allows shared skills to be committed once and used
+# across multiple AI tools.
+#
+# Each subdirectory under shared_path is treated as a skill and gets symlinked
+# into each vendor's destination. Omit a vendor from vendor_destinations to
+# skip symlinking for it (useful when the tool already looks in shared_path).
+skills:
+  # Path (relative to output dir) where shared skills are stored
+  shared_path: ".agents/skills/shared"
+
+  # Where to symlink skills for each vendor.
+  # Remove a vendor entry to disable symlinking for that tool entirely.
+  vendor_destinations:
+    # https://code.claude.com/docs/en/skills
+    claude: ".claude/skills"
+    #
+    # Cursor supports multuple directories for skills, and the default config assumes that it's going to take
+    # skills from .claude/skills. But uncomment to change.
+    # https://cursor.com/docs/context/skills#skill-directories
+    # cursor: ".cursor/skills"
+    #
+    # Gemini CLI looks in .gemini/skills/ and .agents/skills/ by default.
+    # If your shared_path is already under .agents/skills/, you likely don't
+    # need symlinking for Gemini. Uncomment to enable:
+    # https://cursor.com/docs/context/skills#skill-directories
+    # gemini: ".gemini/skills"
+
