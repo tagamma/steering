@@ -98,7 +98,8 @@ def generate(input, output, vendor, dry_run, config_path):
 
         console.print(f"  ✅ {len(ruleset.auto)} auto-rule(s)")
         console.print(f"  ✅ {len(ruleset.contextual)} contextual rule(s)")
-        console.print(f"  ✅ {len(ruleset.agents)} AGENTS file(s)\n")
+        console.print(f"  ✅ {len(ruleset.agents)} AGENTS file(s)")
+        console.print(f"  ✅ {len(ruleset.skills)} skill(s)\n")
     except Exception as e:
         console.print(f"[red]ERROR: Failed to load rules:[/red] {e}")
         import traceback
@@ -229,18 +230,20 @@ def validate(input, config_path):
         console.print(f"[red]ERROR: Failed to load config:[/red] {e}")
         sys.exit(1)
 
-    # Load rules (without AGENTS files for validation)
+    # Load rules and skills (without AGENTS files for validation)
     try:
         loader = RuleLoader(config, input_dir)
         auto_rules = loader.load_auto_rules()
         contextual_rules = loader.load_contextual_rules()
+        skills = loader.load_skills()
 
         console.print(f"  Loaded {len(auto_rules)} auto-rule(s)")
-        console.print(f"  Loaded {len(contextual_rules)} contextual rule(s)\n")
+        console.print(f"  Loaded {len(contextual_rules)} contextual rule(s)")
+        console.print(f"  Loaded {len(skills)} skill(s)\n")
 
         from .models import RuleSet
 
-        ruleset = RuleSet(auto=auto_rules, contextual=contextual_rules, agents=[])
+        ruleset = RuleSet(auto=auto_rules, contextual=contextual_rules, agents=[], skills=skills)
     except Exception as e:
         console.print(f"[red]ERROR: Failed to load rules:[/red] {e}")
         sys.exit(1)
@@ -303,11 +306,12 @@ def list_rules(input, config_path):
         console.print(f"[red]ERROR: Failed to load config:[/red] {e}")
         sys.exit(1)
 
-    # Load rules
+    # Load rules and skills
     try:
         loader = RuleLoader(config, input_dir)
         auto_rules = loader.load_auto_rules()
         contextual_rules = loader.load_contextual_rules()
+        skills = loader.load_skills()
     except Exception as e:
         console.print(f"[red]ERROR: Failed to load rules:[/red] {e}")
         sys.exit(1)
@@ -338,9 +342,26 @@ def list_rules(input, config_path):
         console.print(ctx_table)
         console.print()
 
+    # Display skills
+    if skills:
+        console.print("[cyan]Skills (tool capabilities):[/cyan]\n")
+        skill_table = Table(show_header=True, header_style="bold cyan")
+        skill_table.add_column("Name", style="white")
+        skill_table.add_column("Description", style="dim")
+        skill_table.add_column("Tools", style="yellow")
+
+        for skill in sorted(skills, key=lambda s: s.name):
+            desc = skill.description
+            if len(desc) > 80:
+                desc = desc[:77] + "..."
+            skill_table.add_row(skill.name, desc, skill.allowed_tools or "-")
+
+        console.print(skill_table)
+        console.print()
+
     # Summary
     console.print(
-        f"[dim]Total: {len(auto_rules)} auto-rules, {len(contextual_rules)} contextual rules[/dim]"
+        f"[dim]Total: {len(auto_rules)} auto-rules, {len(contextual_rules)} contextual rules, {len(skills)} skills[/dim]"
     )
 
 

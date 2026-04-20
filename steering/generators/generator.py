@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import List
 import glob as glob_module
 
-from .models import Rule, RuleSet, load_rule_from_file
+from .models import Rule, RuleSet, Skill, load_rule_from_file, load_skill_from_file
 from .config import Config
 
 
@@ -116,6 +116,33 @@ class RuleLoader:
 
         return sorted(rules, key=lambda r: str(r.path))
 
+    def load_skills(self) -> List[Skill]:
+        """Load all skills from the configured directory.
+
+        Skills are SKILL.md files in subdirectories. The parent directory name
+        becomes the skill name. Symlinks are followed, so skills can be defined
+        elsewhere and linked into the skills directory.
+
+        Returns:
+            List of Skill objects
+        """
+        skills = []
+        pattern = str(self.input_dir / self.config.skills_glob)
+
+        for file_path in sorted(
+            Path(p) for p in glob_module.glob(pattern, recursive=True)
+        ):
+            # Follow symlinks for existence check -- the source dir might be
+            # a symlink to a skill defined elsewhere in the repo
+            if file_path.is_file() or (file_path.is_symlink() and file_path.resolve().is_file()):
+                try:
+                    skill = load_skill_from_file(file_path)
+                    skills.append(skill)
+                except Exception as e:
+                    print(f"WARN: Failed to load skill {file_path}: {e}")
+
+        return skills
+
     def _is_ignored(self, file_path: Path, base_dir: Path) -> bool:
         """Check if a file path should be ignored based on configured ignore patterns.
 
@@ -153,17 +180,18 @@ class RuleLoader:
         return False
 
     def load_all_rules(self, output_dir: Path) -> RuleSet:
-        """Load all rules (auto, contextual, and agents).
+        """Load all rules (auto, contextual, agents) and skills.
 
         Args:
             output_dir: The output directory (repository root) for discovering AGENTS files
 
         Returns:
-            A RuleSet containing all loaded rules
+            A RuleSet containing all loaded rules and skills
         """
         auto_rules = self.load_auto_rules()
         contextual_rules = self.load_contextual_rules()
         agents_rules = self.load_agents_files(output_dir)
+        skills = self.load_skills()
 
         # Load included rules if specified
         for included_path in self.config.included_rules:
@@ -185,5 +213,6 @@ class RuleLoader:
                 print(f"WARN: Included rule not found: {included_path}")
 
         return RuleSet(
-            auto=auto_rules, contextual=contextual_rules, agents=agents_rules
+            auto=auto_rules, contextual=contextual_rules, agents=agents_rules,
+            skills=skills,
         )

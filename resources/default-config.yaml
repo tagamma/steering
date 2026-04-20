@@ -28,6 +28,11 @@ default_vendors:
 auto_rules_glob: "rules/auto-rules/*.mdc"
 contextual_rules_glob: "rules/contextual-rules/*.mdc"
 
+# Pattern for discovering skill definitions (SKILL.md files)
+# Each skill lives in its own subdirectory; the directory name is the skill name
+# Supports symlinks, so skills defined elsewhere can be linked in
+skills_glob: "rules/skills/*/SKILL.md"
+
 # Pattern for discovering local AGENTS files throughout the repository
 # This searches from the output directory (repository root)
 agents_glob: "**/AGENTS.{md,mdc}"

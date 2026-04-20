@@ -41,12 +41,33 @@ class Rule:
 
 
 @dataclass
+class Skill:
+    """Represents a single AI skill definition (SKILL.md)."""
+
+    name: str  # Skill identifier (parent directory name)
+    path: Path  # Full path to SKILL.md file
+    frontmatter: Dict[str, Any]  # YAML frontmatter (name, description, allowed-tools)
+    content: str  # Markdown content
+
+    @property
+    def description(self) -> str:
+        """Get the description from frontmatter."""
+        return self.frontmatter.get("description", "")
+
+    @property
+    def allowed_tools(self) -> str:
+        """Get the allowed-tools from frontmatter."""
+        return self.frontmatter.get("allowed-tools", "")
+
+
+@dataclass
 class RuleSet:
-    """Collection of rules for generation."""
+    """Collection of rules and skills for generation."""
 
     auto: List[Rule]  # Auto-rules (always apply)
     contextual: List[Rule]  # Contextual rules (apply based on concern)
     agents: List[Rule]  # Discovered AGENTS.{md,mdc} files
+    skills: List[Skill]  # Discovered SKILL.md files
 
     @property
     def all_rules(self) -> List[Rule]:
@@ -116,6 +137,73 @@ def load_rule_from_file(file_path: Path, rule_type: str) -> Rule:
         frontmatter=frontmatter,
         content=body,
     )
+
+
+def load_skill_from_file(file_path: Path) -> Skill:
+    """Load a skill from a SKILL.md file.
+
+    The skill name is derived from the parent directory name, matching how
+    both Claude Code and Cursor identify skills.
+
+    Args:
+        file_path: Path to the SKILL.md file
+
+    Returns:
+        A Skill object
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        ValueError: If the file can't be parsed
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"Skill file not found: {file_path}")
+
+    # Resolve symlinks so we can read the actual content
+    resolved = file_path.resolve()
+
+    try:
+        content = resolved.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Failed to read {file_path}: {e}")
+
+    frontmatter, body = parse_frontmatter(content)
+
+    # Skill name comes from the parent directory (e.g., .agents/skills/orgcli/SKILL.md -> orgcli)
+    name = file_path.parent.name
+
+    return Skill(
+        name=name,
+        path=file_path,
+        frontmatter=frontmatter,
+        content=body,
+    )
+
+
+def validate_skill(skill: Skill) -> List[str]:
+    """Validate a skill and return list of validation errors.
+
+    Args:
+        skill: The skill to validate
+
+    Returns:
+        List of error messages (empty if valid)
+    """
+    errors = []
+
+    if not skill.description:
+        errors.append(
+            f"Skill '{skill.name}' missing required 'description' in frontmatter"
+        )
+
+    # 'name' in frontmatter should match the directory name
+    fm_name = skill.frontmatter.get("name", "")
+    if fm_name and fm_name != skill.name:
+        errors.append(
+            f"Skill '{skill.name}' has mismatched frontmatter name '{fm_name}' "
+            f"(expected '{skill.name}' from directory name)"
+        )
+
+    return errors
 
 
 def validate_rule(rule: Rule) -> List[str]:
@@ -195,6 +283,11 @@ def validate_ruleset(ruleset: RuleSet) -> List[str]:
         errors = validate_rule(rule)
         issues.extend(errors)
 
+    # Validate skills
+    for skill in ruleset.skills:
+        errors = validate_skill(skill)
+        issues.extend(errors)
+
     # Check for duplicate rule names across types
     # For AGENTS files, use full path since they all have the same name
     all_names = {}
@@ -209,5 +302,16 @@ def validate_ruleset(ruleset: RuleSet) -> List[str]:
             )
         else:
             all_names[key] = rule.type
+
+    # Check for duplicate skill names
+    skill_names = {}
+    for skill in ruleset.skills:
+        if skill.name in skill_names:
+            issues.append(
+                f"CONFLICT: Skill name '{skill.name}' defined at both "
+                f"{skill_names[skill.name]} and {skill.path}"
+            )
+        else:
+            skill_names[skill.name] = str(skill.path)
 
     return issues

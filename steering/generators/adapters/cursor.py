@@ -115,6 +115,12 @@ class CursorAdapter:
         )
         files.update(reference_files)
 
+        # Symlink skills into .cursor/skills/ for Cursor discovery
+        skill_files = self._process_skills(
+            ruleset.skills, output_dir, dry_run
+        )
+        files.update(skill_files)
+
         return files
 
     def _cleanup_cursor_rules(self, cursor_rules_dir: Path, output_dir: Path):
@@ -269,6 +275,63 @@ class CursorAdapter:
             if not dry_run:
                 cursor_ref_file.parent.mkdir(parents=True, exist_ok=True)
                 cursor_ref_file.write_text(content, encoding="utf-8")
+
+        return files
+
+    def _process_skills(
+        self,
+        skills: List,
+        output_dir: Path,
+        dry_run: bool,
+    ) -> Dict[str, str]:
+        """Symlink skill directories into .cursor/skills/ for Cursor discovery.
+
+        Each skill gets its own subdirectory with SKILL.md symlinked from the
+        source location.
+
+        Args:
+            skills: List of Skill objects
+            output_dir: Output directory (repository root)
+            dry_run: If True, don't create actual symlinks
+
+        Returns:
+            Dict mapping file paths to their symlink targets
+        """
+        files: Dict[str, str] = {}
+
+        if not skills:
+            return files
+
+        cursor_skills_dir = output_dir / ".cursor" / "skills"
+
+        if not dry_run:
+            # Clean up old generated skill symlinks
+            if cursor_skills_dir.exists():
+                import shutil
+                shutil.rmtree(cursor_skills_dir)
+            cursor_skills_dir.mkdir(parents=True, exist_ok=True)
+
+        for skill in skills:
+            skill_dir = cursor_skills_dir / skill.name
+            skill_link = skill_dir / "SKILL.md"
+
+            # Calculate relative path from the symlink location to the source
+            try:
+                relative_target = os.path.relpath(
+                    skill.path.resolve(), skill_dir
+                )
+            except ValueError:
+                relative_target = str(skill.path.resolve())
+
+            try:
+                rel_link = skill_link.relative_to(output_dir)
+                files[str(rel_link)] = f"SYMLINK->{relative_target}"
+            except ValueError:
+                files[str(skill_link)] = f"SYMLINK->{relative_target}"
+
+            if not dry_run:
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                self._create_symlink(skill_link, relative_target)
 
         return files
 

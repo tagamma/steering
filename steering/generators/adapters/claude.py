@@ -149,6 +149,32 @@ class ClaudeAdapter:
 
         sections.append("")
 
+        # Skills section
+        if ruleset.skills:
+            sections.extend(
+                [
+                    "## Skills",
+                    "",
+                    "The following skills are available. Each teaches the AI how to use a specific tool or capability:",
+                    "",
+                ]
+            )
+
+            for skill in sorted(ruleset.skills, key=lambda s: s.name):
+                try:
+                    skill_rel_path = skill.path.relative_to(output_dir)
+                except ValueError:
+                    skill_rel_path = skill.path
+
+                desc = skill.description
+                # Truncate long descriptions for the index
+                if len(desc) > 120:
+                    desc = desc[:117] + "..."
+
+                sections.append(f"- `{skill_rel_path}`: {desc}")
+
+            sections.append("")
+
         # AGENTS files section
         sections.extend(
             [

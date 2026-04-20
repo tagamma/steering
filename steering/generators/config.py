@@ -28,6 +28,9 @@ class Config:
             "contextual_rules_glob", "rules/contextual-rules/**/*.mdc"
         )
         self.agents_glob = self._data.get("agents_glob", "**/AGENTS.{md,mdc}")
+        self.skills_glob = self._data.get(
+            "skills_glob", "rules/skills/*/SKILL.md"
+        )
         self.ignored_directories = self._data.get("ignored_directories", [])
         self.included_rules = self._data.get("included_rules", [])
 
