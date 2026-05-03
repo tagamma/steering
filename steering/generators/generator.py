@@ -160,10 +160,18 @@ class RuleLoader:
             return False
 
         parts = relative_path.parts
+        rel_str = relative_path.as_posix()
 
         for ignored_dir in self.config.ignored_directories:
             # Remove glob patterns if present
             ignored_dir = ignored_dir.rstrip("/*")
+
+            # Multi-component patterns (e.g. "private/hass/config/custom_components")
+            # match by path prefix instead of single-component equality.
+            if "/" in ignored_dir:
+                if rel_str == ignored_dir or rel_str.startswith(ignored_dir + "/"):
+                    return True
+                continue
 
             # Check if any part of the path matches an ignored directory
             for part in parts:
