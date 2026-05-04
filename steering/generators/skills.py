@@ -57,12 +57,20 @@ def sync_skills(
     if not skill_dirs:
         return files
 
-    # Filter vendor_destinations to only active vendors
-    active_destinations = {
-        vendor: dest_path
-        for vendor, dest_path in config.skills_vendor_destinations.items()
-        if vendor in vendors
-    }
+    # A destination that resolves to the source path would self-link, and
+    # the stale-symlink cleanup below could then delete real skills.
+    shared_resolved = shared_path.resolve()
+    active_destinations = {}
+    for vendor, dest_path in config.skills_vendor_destinations.items():
+        if vendor not in vendors:
+            continue
+        if (output_dir / dest_path).resolve() == shared_resolved:
+            raise SkillConflictError(
+                f"Vendor '{vendor}' has skills destination '{dest_path}', which "
+                f"resolves to the same path as the source ('{config.skills_shared_path}'). "
+                f"Remove this entry; that vendor already reads .agents/skills/ natively."
+            )
+        active_destinations[vendor] = dest_path
 
     if not active_destinations:
         return files

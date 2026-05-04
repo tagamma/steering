@@ -1,6 +1,10 @@
+import sys
 from pathlib import Path
 from typing import Any, Dict, List
 import yaml
+
+
+VALID_VENDORS = ["cursor", "claude", "continue", "copilot", "gemini", "codex"]
 
 
 class Config:
@@ -34,12 +38,20 @@ class Config:
         self.ignored_directories = self._data.get("ignored_directories", [])
         self.included_rules = self._data.get("included_rules", [])
 
-        # Skills configuration
+        # Skill source path is fixed to the canonical open-agent-skills location
+        # so tools like Codex and Gemini CLI find skills without any symlinks.
         skills_data = self._data.get("skills", {})
-        self.skills_shared_path: str = skills_data.get("shared_path", "")
+        self.skills_shared_path: str = ".agents/skills"
         self.skills_vendor_destinations: Dict[str, str] = skills_data.get(
             "vendor_destinations", {}
         )
+        if "shared_path" in skills_data:
+            print(
+                "WARN: 'skills.shared_path' is no longer configurable and will be "
+                "ignored. Skills are always loaded from .agents/skills/. Remove "
+                "the key from your config to silence this warning.",
+                file=sys.stderr,
+            )
 
         # Vendor-specific settings
         self.cursor_settings = self._data.get("cursor", {})
@@ -61,28 +73,24 @@ class Config:
         if not isinstance(self.ignored_directories, list):
             issues.append("'ignored_directories' must be a list")
 
-        # Validate default_vendors
         if not isinstance(self.default_vendors, list):
             issues.append("'default_vendors' must be a list")
         else:
-            valid_vendors = ["cursor", "claude", "continue", "copilot", "gemini"]
             for vendor in self.default_vendors:
-                if vendor not in valid_vendors:
+                if vendor not in VALID_VENDORS:
                     issues.append(
                         f"Invalid vendor in default_vendors: '{vendor}'. "
-                        f"Must be one of: {', '.join(valid_vendors)}"
+                        f"Must be one of: {', '.join(VALID_VENDORS)}"
                     )
 
-        # Validate skills configuration
         if not isinstance(self.skills_vendor_destinations, dict):
             issues.append("'skills.vendor_destinations' must be a dictionary")
         else:
-            valid_vendors = ["cursor", "claude", "continue", "copilot", "gemini"]
             for vendor in self.skills_vendor_destinations:
-                if vendor not in valid_vendors:
+                if vendor not in VALID_VENDORS:
                     issues.append(
                         f"Invalid vendor in skills.vendor_destinations: '{vendor}'. "
-                        f"Must be one of: {', '.join(valid_vendors)}"
+                        f"Must be one of: {', '.join(VALID_VENDORS)}"
                     )
 
         # Warn about suspicious configurations
@@ -148,8 +156,6 @@ def load_config(config_path: Path | None = None) -> Config:
     # Print warnings if any
     warnings = [issue for issue in issues if issue.startswith("WARNING:")]
     if warnings:
-        import sys
-
         for warning in warnings:
             print(f"WARN: {warning}", file=sys.stderr)
 

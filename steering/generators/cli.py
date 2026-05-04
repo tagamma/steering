@@ -17,6 +17,7 @@ from .adapters import (
     ContinueDevAdapter,
     CopilotAdapter,
     GeminiAdapter,
+    CodexAdapter,
 )
 
 
@@ -47,7 +48,7 @@ def cli():
 @click.option(
     "--vendor",
     type=click.Choice(
-        ["cursor", "claude", "continue", "copilot", "gemini", "all"],
+        ["cursor", "claude", "continue", "copilot", "gemini", "codex", "all"],
         case_sensitive=False,
     ),
     default="all",
@@ -136,6 +137,7 @@ def generate(input, output, vendor, dry_run, config_path):
         "continue": ContinueDevAdapter(),
         "copilot": CopilotAdapter(),
         "gemini": GeminiAdapter(),
+        "codex": CodexAdapter(),
     }
 
     all_files = {}

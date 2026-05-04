@@ -15,11 +15,15 @@ vendor_files:
 default_vendor: all
 
 # List of vendors to enable when --vendor=all or no vendor specified
-# Available: cursor, claude, continue, copilot, gemini
+# Available: cursor, claude, continue, copilot, gemini, codex
+# codex requires no generated files (it reads AGENTS.md and .agents/skills/
+# natively). The codex adapter is a no-op; including it here makes support
+# explicit.
 default_vendors:
   - cursor
   - claude
   - gemini
+  - codex
 
 # Glob patterns for discovering rules
 # All patterns are relative to the input directory
@@ -82,32 +86,28 @@ gemini:
   # List contextual rules with descriptions for on-demand loading
   contextual_on_demand: true
 
-# Skills configuration
-# Skills are tool-agnostic directories that get symlinked into each vendor's
-# skills location. This allows shared skills to be committed once and used
-# across multiple AI tools.
-#
-# Each subdirectory under shared_path is treated as a skill and gets symlinked
-# into each vendor's destination. Omit a vendor from vendor_destinations to
-# skip symlinking for it (useful when the tool already looks in shared_path).
+# Skills configuration.
+# Skills always live at .agents/skills/<name> (the canonical "open agent
+# skills standard" location). The source path is not configurable -- making
+# it canonical means tools like Codex and Gemini CLI find skills there
+# without any symlinking. For tools that don't, list a destination below
+# and steering will symlink each skill into it.
 skills:
-  # Path (relative to output dir) where shared skills are stored
-  shared_path: ".agents/skills/shared"
-
   # Where to symlink skills for each vendor.
   # Remove a vendor entry to disable symlinking for that tool entirely.
   vendor_destinations:
     # https://code.claude.com/docs/en/skills
     claude: ".claude/skills"
     #
-    # Cursor supports multuple directories for skills, and the default config assumes that it's going to take
-    # skills from .claude/skills. But uncomment to change.
+    # Cursor supports multiple skill directories and by default picks them
+    # up from .claude/skills. Uncomment to override.
     # https://cursor.com/docs/context/skills#skill-directories
     # cursor: ".cursor/skills"
     #
-    # Gemini CLI looks in .gemini/skills/ and .agents/skills/ by default.
-    # If your shared_path is already under .agents/skills/, you likely don't
-    # need symlinking for Gemini. Uncomment to enable:
-    # https://cursor.com/docs/context/skills#skill-directories
+    # Codex reads .agents/skills/ natively -- no destination needed.
+    # https://developers.openai.com/codex/skills
+    #
+    # Gemini CLI also reads .agents/skills/ natively. Uncomment if you also
+    # want symlinks under .gemini/skills/.
     # gemini: ".gemini/skills"
 
