@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
+from ..discovery import Discovery
 from ..models import RuleSet
 
 
@@ -22,5 +23,6 @@ class CodexAdapter:
         input_dir: Path,
         *,
         dry_run: bool = False,
+        discovery: Optional[Discovery] = None,
     ) -> Dict[str, str]:
         return {}

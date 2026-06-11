@@ -1,7 +1,8 @@
 import os
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from ..discovery import Discovery
 from ..models import RuleSet
 
 
@@ -15,6 +16,7 @@ class CursorAdapter:
         input_dir: Path,
         *,
         dry_run: bool = False,
+        discovery: Optional[Discovery] = None,
     ) -> Dict[str, str]:
         """Generate Cursor configuration files.
 
@@ -23,6 +25,7 @@ class CursorAdapter:
             output_dir: Output directory (repository root)
             input_dir: Input directory containing rules/ subdirectory
             dry_run: If True, don't create actual files/symlinks
+            discovery: File discovery for repo-wide cleanup scans
 
         Returns:
             Dict mapping generated file paths to their content/target
@@ -32,6 +35,8 @@ class CursorAdapter:
 
         output_dir = Path(output_dir)
         input_dir = Path(input_dir)
+        if discovery is None:
+            discovery = Discovery.fallback(output_dir)
 
         # Create .cursor/rules/ directory
         cursor_rules_dir = output_dir / ".cursor" / "rules"
@@ -39,7 +44,7 @@ class CursorAdapter:
         if not dry_run:
             cursor_rules_dir.mkdir(parents=True, exist_ok=True)
             # Clean up old generated files
-            self._cleanup_cursor_rules(cursor_rules_dir, output_dir)
+            self._cleanup_cursor_rules(cursor_rules_dir, discovery)
 
         # Symlink auto-rules and process their @ references
         for rule in ruleset.auto:
@@ -123,16 +128,18 @@ class CursorAdapter:
 
         return files
 
-    def _cleanup_cursor_rules(self, cursor_rules_dir: Path, output_dir: Path):
+    def _cleanup_cursor_rules(self, cursor_rules_dir: Path, discovery: Discovery):
         """Clean up old generated files in .cursor/rules/ directories.
 
         Removes:
         - All files in root .cursor/rules/ (they're all generated)
-        - All .cursor/rules/ directories throughout the repo (distributed ref files)
+        - Distributed .cursor/rules/ directories (ref files) next to code git
+          knows about; .cursor directories inside gitignored checkouts are
+          left alone
 
         Args:
             cursor_rules_dir: Root .cursor/rules/ directory
-            output_dir: Output directory (repository root) for finding distributed dirs
+            discovery: File discovery rooted at the output directory
         """
         import shutil
 
@@ -148,7 +155,7 @@ class CursorAdapter:
                     print(f"WARN: Failed to remove {item}: {e}")
 
         # Clean up distributed .cursor/rules/ directories
-        for cursor_dir in output_dir.rglob(".cursor/rules"):
+        for cursor_dir in discovery.cleanup_dirs(".cursor/rules"):
             # Skip the root one we just cleaned
             if cursor_dir == cursor_rules_dir:
                 continue

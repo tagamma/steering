@@ -106,6 +106,11 @@ steering generate --input . --output . --vendor claude
 # Generate for all configured providers
 steering generate --input . --output .
 
+# Generate for a directory that is not a git repository (e.g. a knowledge base).
+# Inside a git work tree, discovery only considers git-tracked files; outside
+# one, an explicit --no-git is required to opt into a recursive filesystem scan.
+steering generate --input . --output . --no-git
+
 # Validate all rules
 steering validate --input .
 
@@ -125,6 +130,10 @@ defaults:
   local_rules_glob: "AGENTS.{md,mdc}"
   auto_rules_glob: "rules/auto-rules/*.mdc"
   contextual_rules_glob: "rules/contextual-rules/*.mdc"
+  # How repo-wide scans find files: "auto" (default) uses git-tracked files
+  # inside a git work tree and errors outside one; "filesystem" opts into a
+  # recursive walk (same as passing --no-git), for non-git directories.
+  discovery: auto
 ```
 
 ### Creating Rules

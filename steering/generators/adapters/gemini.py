@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from ..discovery import Discovery
 from ..models import RuleSet
 
 
@@ -18,6 +19,7 @@ class GeminiAdapter:
         input_dir: Path,
         *,
         dry_run: bool = False,
+        discovery: Optional[Discovery] = None,
     ) -> Dict[str, str]:
         """Generate Gemini CLI configuration files.
 
@@ -26,6 +28,7 @@ class GeminiAdapter:
             output_dir: Output directory (repository root)
             input_dir: Input directory containing rules/ subdirectory
             dry_run: If True, don't create actual files
+            discovery: File discovery for repo-wide cleanup scans
 
         Returns:
             Dict mapping generated file paths to their content
@@ -34,10 +37,12 @@ class GeminiAdapter:
 
         output_dir = Path(output_dir)
         input_dir = Path(input_dir)
+        if discovery is None:
+            discovery = Discovery.fallback(output_dir)
 
         # Clean up old GEMINI.md files
         if not dry_run:
-            self._cleanup_gemini_files(output_dir)
+            self._cleanup_gemini_files(discovery)
 
         # Generate main GEMINI.md at repository root
         gemini_md_content = self._generate_main_gemini_md(
@@ -59,18 +64,19 @@ class GeminiAdapter:
 
         return files
 
-    def _cleanup_gemini_files(self, output_dir: Path):
+    def _cleanup_gemini_files(self, discovery: Discovery):
         """Clean up old generated GEMINI.md files.
 
-        Removes all GEMINI.md files throughout the repository (they're all generated).
+        Removes generated GEMINI.md files throughout the repository. The scan
+        is discovery-aware, so files git doesn't know about (e.g. inside
+        gitignored checkouts) are left alone.
 
         Args:
-            output_dir: Output directory (repository root)
+            discovery: File discovery rooted at the output directory
         """
-        for gemini_file in output_dir.rglob("GEMINI.md"):
+        for gemini_file in discovery.cleanup_files(["**/GEMINI.md"]):
             try:
-                if gemini_file.is_file() or gemini_file.is_symlink():
-                    gemini_file.unlink()
+                gemini_file.unlink()
             except Exception as e:
                 print(f"⚠️  Warning: Failed to remove {gemini_file}: {e}")
 

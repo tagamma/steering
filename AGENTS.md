@@ -27,8 +27,9 @@ projects/steering/
    - **Reference**: Generates `CLAUDE.md` using `@` references.
    - **Locality**: Creates adjacent `CLAUDE.md` files next to `AGENTS.md` files to support local context loading.
 
-3. **Rule Discovery (`generator.py`)**:
-   - Uses `glob` to find `AGENTS.{md,mdc}` files.
+3. **Rule Discovery (`generator.py` + `discovery.py`)**:
+   - Repo-wide scans (AGENTS file discovery, cleanup of generated files) are git-aware: inside a git work tree only git-tracked files are considered (`git ls-files --recurse-submodules`); outside one, a recursive walk requires explicit opt-in (`--no-git` or `discovery: filesystem`).
+   - The filesystem walk never follows directory symlinks (recursive `glob` did, which let scans escape into Nix `result` symlinks and similar).
    - Respects `ignored_directories` from config to avoid scanning `node_modules` etc.
 
 ### Development Workflow

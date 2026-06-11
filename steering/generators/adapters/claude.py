@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from ..discovery import Discovery
 from ..models import RuleSet
 
 
@@ -12,6 +13,7 @@ class ClaudeAdapter:
         input_dir: Path,
         *,
         dry_run: bool = False,
+        discovery: Optional[Discovery] = None,
     ) -> Dict[str, str]:
         """Generate Claude configuration files.
 
@@ -20,6 +22,7 @@ class ClaudeAdapter:
             output_dir: Output directory (repository root)
             input_dir: Input directory containing rules/ subdirectory
             dry_run: If True, don't create actual files
+            discovery: File discovery for repo-wide cleanup scans
 
         Returns:
             Dict mapping generated file paths to their content
@@ -28,10 +31,12 @@ class ClaudeAdapter:
 
         output_dir = Path(output_dir)
         input_dir = Path(input_dir)
+        if discovery is None:
+            discovery = Discovery.fallback(output_dir)
 
         # Clean up old CLAUDE.md files
         if not dry_run:
-            self._cleanup_claude_files(output_dir)
+            self._cleanup_claude_files(discovery)
 
         # Generate main CLAUDE.md at repository root
         claude_md_content = self._generate_main_claude_md(
@@ -53,18 +58,19 @@ class ClaudeAdapter:
 
         return files
 
-    def _cleanup_claude_files(self, output_dir: Path):
+    def _cleanup_claude_files(self, discovery: Discovery):
         """Clean up old generated CLAUDE.md files.
 
-        Removes all CLAUDE.md files throughout the repository (they're all generated).
+        Removes generated CLAUDE.md files throughout the repository. The scan
+        is discovery-aware, so files git doesn't know about (e.g. inside
+        gitignored checkouts) are left alone.
 
         Args:
-            output_dir: Output directory (repository root)
+            discovery: File discovery rooted at the output directory
         """
-        for claude_file in output_dir.rglob("CLAUDE.md"):
+        for claude_file in discovery.cleanup_files(["**/CLAUDE.md"]):
             try:
-                if claude_file.is_file():
-                    claude_file.unlink()
+                claude_file.unlink()
             except Exception as e:
                 print(f"WARN: Failed to remove {claude_file}: {e}")
 

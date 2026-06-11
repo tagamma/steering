@@ -1,7 +1,8 @@
 import os
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from ..discovery import Discovery
 from ..models import RuleSet
 
 
@@ -19,6 +20,7 @@ class ContinueDevAdapter:
         input_dir: Path,
         *,
         dry_run: bool = False,
+        discovery: Optional[Discovery] = None,
     ) -> Dict[str, str]:
         """Generate Continue.dev configuration files.
 
@@ -27,6 +29,8 @@ class ContinueDevAdapter:
             output_dir: Output directory (repository root)
             input_dir: Input directory containing rules/ subdirectory
             dry_run: If True, don't create actual files/symlinks
+            discovery: Unused; this adapter only writes under .continue/.
+                Accepted for the common adapter interface.
 
         Returns:
             Dict mapping generated file paths to their content/target

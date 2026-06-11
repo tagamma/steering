@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .config import load_config
+from .discovery import Discovery, DiscoveryError, resolve_discovery_mode
 from .generator import RuleLoader
 from .models import validate_ruleset
 from .skills import SkillConflictError, sync_skills
@@ -60,10 +61,19 @@ def cli():
     help="Show what would be generated without creating files",
 )
 @click.option(
+    "--no-git",
+    is_flag=True,
+    help=(
+        "Discover files by scanning the filesystem recursively instead of "
+        "limiting repo-wide scans to git-tracked files. Required when the "
+        "output directory is not a git work tree."
+    ),
+)
+@click.option(
     "--config-path",
     help="Path to config.yaml (default: {input}/resources/default-config.yaml)",
 )
-def generate(input, output, vendor, dry_run, config_path):
+def generate(input, output, vendor, dry_run, no_git, config_path):
     """Generate AI rule configurations for specified vendor(s)."""
     console.print("[blue]🎯 Steering Generator[/blue]")
     console.print("[dim]" + "=" * 50 + "[/dim]\n")
@@ -85,17 +95,30 @@ def generate(input, output, vendor, dry_run, config_path):
         console.print(f"[red]ERROR: Failed to load config:[/red] {e}")
         sys.exit(1)
 
+    # Resolve how repo-wide scans discover files (git-tracked vs filesystem)
+    try:
+        discovery_mode = resolve_discovery_mode(config.discovery, no_git, output_dir)
+    except DiscoveryError as e:
+        console.print(f"[red]ERROR:[/red] {e}")
+        sys.exit(1)
+    discovery = Discovery(output_dir, discovery_mode, config.ignored_directories)
+
     console.print("[cyan]Configuration:[/cyan]")
     console.print(f"  Input: [white]{input_dir}[/white]")
     console.print(f"  Output: [white]{output_dir}[/white]")
     console.print(f"  Vendor: [white]{vendor}[/white]")
+    console.print(
+        f"  Discovery: [white]"
+        f"{'git-tracked files' if discovery_mode == 'git' else 'filesystem scan'}"
+        f"[/white]"
+    )
     console.print(f"  Dry run: [white]{'yes' if dry_run else 'no'}[/white]\n")
 
     # Load rules
     console.print("[cyan]Loading rules...[/cyan]")
     try:
         loader = RuleLoader(config, input_dir)
-        ruleset = loader.load_all_rules(output_dir)
+        ruleset = loader.load_all_rules(output_dir, discovery)
 
         console.print(f"  ✅ {len(ruleset.auto)} auto-rule(s)")
         console.print(f"  ✅ {len(ruleset.contextual)} contextual rule(s)")
@@ -147,7 +170,9 @@ def generate(input, output, vendor, dry_run, config_path):
 
         try:
             adapter = adapters[vendor_name]
-            files = adapter.generate(ruleset, output_dir, input_dir, dry_run=dry_run)
+            files = adapter.generate(
+                ruleset, output_dir, input_dir, dry_run=dry_run, discovery=discovery
+            )
             all_files.update(files)
 
             console.print(f"  ✅ Generated {len(files)} file(s)\n")

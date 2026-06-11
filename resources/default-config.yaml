@@ -41,6 +41,15 @@ skills_glob: "rules/skills/*/SKILL.md"
 # This searches from the output directory (repository root)
 agents_glob: "**/AGENTS.{md,mdc}"
 
+# How repo-wide scans (AGENTS discovery, cleanup of generated files) find files:
+# - auto:       use git-tracked files when the output directory is inside a git
+#               work tree; error otherwise (pass --no-git for a one-off scan)
+# - git:        require a git work tree (error when there is none)
+# - filesystem: recursively walk the directory tree (pruning ignored_directories,
+#               never following directory symlinks). Use this for directories
+#               that aren't git repositories, e.g. knowledge bases.
+discovery: auto
+
 # Directories to ignore during AGENTS file discovery
 ignored_directories:
   - .git

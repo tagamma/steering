@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 import yaml
 
+from .discovery import VALID_DISCOVERY_SETTINGS
+
 
 VALID_VENDORS = ["cursor", "claude", "continue", "copilot", "gemini", "codex"]
 
@@ -38,6 +40,11 @@ class Config:
         self.ignored_directories = self._data.get("ignored_directories", [])
         self.included_rules = self._data.get("included_rules", [])
 
+        # How repo-wide scans discover files: "auto" uses git-tracked files
+        # when inside a git work tree (and errors otherwise), "git" requires
+        # a git work tree, "filesystem" opts into a recursive walk.
+        self.discovery: str = self._data.get("discovery", "auto")
+
         # Skill source path is fixed to the canonical open-agent-skills location
         # so tools like Codex and Gemini CLI find skills without any symlinks.
         skills_data = self._data.get("skills", {})
@@ -72,6 +79,12 @@ class Config:
 
         if not isinstance(self.ignored_directories, list):
             issues.append("'ignored_directories' must be a list")
+
+        if self.discovery not in VALID_DISCOVERY_SETTINGS:
+            issues.append(
+                f"Invalid 'discovery' setting: '{self.discovery}'. "
+                f"Must be one of: {', '.join(VALID_DISCOVERY_SETTINGS)}"
+            )
 
         if not isinstance(self.default_vendors, list):
             issues.append("'default_vendors' must be a list")
