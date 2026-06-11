@@ -9,16 +9,18 @@ vendor_files:
   claude: CLAUDE.md                          # File for Claude @ references
   continue: .continue/rules                  # Directory for Continue.dev rule symlinks
   copilot: .github/copilot-instructions.md   # GitHub Copilot instructions
-  gemini: GEMINI.md                          # File for Gemini CLI @ references (symlinked to CLAUDE.md)
+  # gemini writes no file: Gemini CLI reads AGENTS.md natively (see default_vendors)
 
 # Default vendor to use if not specified (legacy, use default_vendors instead)
 default_vendor: all
 
 # List of vendors to enable when --vendor=all or no vendor specified
 # Available: cursor, claude, continue, copilot, gemini, codex
-# codex requires no generated files (it reads AGENTS.md and .agents/skills/
-# natively). The codex adapter is a no-op; including it here makes support
-# explicit.
+# codex and gemini require no generated files: both read AGENTS.md and
+# .agents/skills/ natively (Gemini once contextFileName is set to AGENTS.md in
+# .gemini/settings.json). codex is a pure no-op; gemini is cleanup-only --
+# it deletes stale GEMINI.md left over from when steering used to generate them.
+# Including them here makes support explicit.
 default_vendors:
   - cursor
   - claude
@@ -90,12 +92,6 @@ copilot:
   path_specific_from_contextual: true
   # AGENTS.md files are supported natively (no generation needed)
   native_agents_support: true
-
-gemini:
-  # Include auto-rules directly via @ references
-  auto_include: true
-  # List contextual rules with descriptions for on-demand loading
-  contextual_on_demand: true
 
 # Skills configuration.
 # Skills always live at .agents/skills/<name> (the canonical "open agent

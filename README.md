@@ -45,7 +45,7 @@ Steering generates native configurations for supported tools, for example:
 
 - **Cursor**: Creates symlinks in `.cursor/rules/` (preserving frontmatter).
 - **Claude**: Generates `CLAUDE.md` with `@` references.
-- **Gemini**: Generates a `GEMINI.md` file just like for Claude, but with some gemini-cli-specific quirks handled.
+- **Gemini**: Cleanup-only. Gemini CLI reads `AGENTS.md` natively (set `contextFileName` to `AGENTS.md` in `.gemini/settings.json`) and `.agents/skills/` natively, so no `GEMINI.md` is generated; the adapter only deletes stale `GEMINI.md` files left over from when steering used to generate them.
 - **Codex**: No-op. Codex reads `AGENTS.md` and `.agents/skills/` natively, both of which steering already manages as source-of-truth. Listed as a vendor only so its support is explicit.
 
 ### Rule Format (MDC)
