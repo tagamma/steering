@@ -50,7 +50,10 @@ agents_glob: "**/AGENTS.{md,mdc}"
 #               that aren't git repositories, e.g. knowledge bases.
 discovery: auto
 
-# Directories to ignore during AGENTS file discovery
+# Directories to ignore during AGENTS file discovery.
+# Entries match path components exactly (".git" does NOT match ".gitea"),
+# support fnmatch globs ("result-*", "*.egg-info"), and multi-component
+# entries ("private/hass/config/custom_components") match by path prefix.
 ignored_directories:
   - .git
   - node_modules
@@ -65,10 +68,9 @@ ignored_directories:
   - rules
 
 # Vendor-specific settings
-cursor:
-  # For AGENTS files, generate .cursor/rules/*.mdc files with scoped globs to make cursor agents auto-discover our directory-local AGENTS.md files
-  scope_agents_to_directory: true
-
+# NOTE: Cursor reads root and nested AGENTS.md files natively, so no wrapper
+# .mdc files are generated for them; only auto/contextual rule symlinks and
+# ref-*.mdc embeds (for @ references Cursor doesn't follow) go to .cursor/rules.
 claude:
   # Include auto-rules directly via @ references
   auto_include: true

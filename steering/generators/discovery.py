@@ -189,8 +189,11 @@ class Discovery:
         rel_str = "/".join(parts)
 
         for ignored_dir in self.ignored_directories:
-            # Remove glob patterns if present
-            ignored_dir = ignored_dir.rstrip("/*")
+            # Normalize directory-style entries ("foo/" or "foo/*" mean "foo")
+            # without touching glob entries like "result-*".
+            if ignored_dir.endswith("/*"):
+                ignored_dir = ignored_dir[:-2]
+            ignored_dir = ignored_dir.rstrip("/")
 
             # Multi-component patterns (e.g. "private/hass/config/custom_components")
             # match by path prefix instead of single-component equality.
@@ -199,12 +202,13 @@ class Discovery:
                     return True
                 continue
 
-            # Check if any part of the path matches an ignored directory
+            # A path is ignored when any component equals the entry, or
+            # fnmatch-es it for glob entries ("result-*", "*.egg-info").
+            # Prefix/substring matching is deliberately not used: ".git"
+            # must not swallow ".gitea".
             for part in parts:
-                if part == ignored_dir or part.startswith(ignored_dir):
+                if part == ignored_dir:
                     return True
-
-                # Handle wildcard patterns
                 if "*" in ignored_dir and fnmatch.fnmatch(part, ignored_dir):
                     return True
 

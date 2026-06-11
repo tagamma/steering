@@ -95,26 +95,12 @@ class CursorAdapter:
             )
             files.update(ref_files)
 
-        # AI-NOTE: AGENTS files are now natively supported by Cursor (as of v1.7+)
-        # Cursor automatically reads AGENTS.md files in directories, so we don't need
-        # to create special local-*.mdc files anymore.
-        #
-        # However, Cursor has a bug where @ references in AGENTS.md aren't embedded.
-        # We work around this by creating ref-*.mdc files in distributed .cursor/rules/
-        # directories (see _process_agents_references below).
-        #
-        # The old _process_agents_files() logic is kept but disabled for now in case:
-        # - We need to support providers that don't have native AGENTS.md support
-        # - Cursor's implementation changes and we need to revert
-        # - We want to test both approaches
-        #
-        # To re-enable the old approach, uncomment the following lines:
-        # agents_files = self._process_agents_files(
-        #     ruleset.agents, output_dir, cursor_rules_dir, dry_run
-        # )
-        # files.update(agents_files)
-
-        # NEW APPROACH: Create ref-*.mdc files for @ references in AGENTS files
+        # AI-NOTE: AGENTS files are natively supported by Cursor (root and
+        # nested, as of v1.7+), so no per-AGENTS wrapper .mdc files are
+        # generated. Cursor still doesn't embed @ references found inside
+        # AGENTS.md files, so we create ref-*.mdc files in distributed
+        # .cursor/rules/ directories next to them (see
+        # _process_agents_references below).
         reference_files = self._process_agents_references(
             ruleset.agents, output_dir, dry_run
         )
@@ -440,112 +426,6 @@ class CursorAdapter:
                     cursor_ref_file.write_text(content, encoding="utf-8")
 
         return files
-
-    def _process_agents_files(
-        self,
-        agents_rules: List,
-        output_dir: Path,
-        cursor_rules_dir: Path,
-        dry_run: bool,
-    ) -> Dict[str, str]:
-        """Process AGENTS files and create special .mdc files for Cursor.
-
-        AGENTS files need special handling because Cursor only looks in .cursor/rules/
-        but AGENTS files are scattered throughout the repo. We create .mdc files with
-        globs patterns that scope them to their directory.
-
-        Args:
-            agents_rules: List of Rule objects for AGENTS files
-            output_dir: Output directory (repository root)
-            cursor_rules_dir: .cursor/rules/ directory
-            dry_run: If True, don't create actual files
-
-        Returns:
-            Dict mapping file paths to their content
-        """
-        files: Dict[str, str] = {}
-
-        for rule in agents_rules:
-            # Generate kebab-case filename from the rule's path
-            try:
-                rel_path = rule.path.relative_to(output_dir)
-            except ValueError:
-                # File not under output_dir, skip it
-                print(
-                    f"WARN: AGENTS file {rule.path} not under output directory, skipping"
-                )
-                continue
-
-            # Convert path to kebab-case name with local- prefix
-            # e.g., nix/services/grafana/AGENTS.md -> local-nix-services-grafana.mdc
-            # Special case: root AGENTS.md -> local-root.mdc
-            parts = list(rel_path.parts[:-1])  # Exclude the filename itself
-
-            if not parts:  # AGENTS.md is at repo root
-                kebab_name = "local-root.mdc"
-            else:
-                # Don't include "agents" in the name, just use directory path with local- prefix
-                kebab_name = "local-" + "-".join(parts) + ".mdc"
-
-            cursor_file_path = cursor_rules_dir / kebab_name
-
-            # Calculate directory glob pattern
-            # If AGENTS.md is in nix/services/grafana/, scope to nix/services/grafana/**/*
-            agents_dir = rule.path.parent
-            try:
-                agents_dir_rel = agents_dir.relative_to(output_dir)
-                glob_pattern = str(agents_dir_rel / "**" / "*")
-            except ValueError:
-                # Can't make relative path
-                glob_pattern = "**/*"
-
-            # Create .mdc file content with proper frontmatter
-            content = self._create_agents_mdc_content(rule, glob_pattern)
-
-            files[str(cursor_file_path.relative_to(output_dir))] = content
-
-            if not dry_run:
-                cursor_file_path.parent.mkdir(parents=True, exist_ok=True)
-                cursor_file_path.write_text(content, encoding="utf-8")
-
-        return files
-
-    def _create_agents_mdc_content(self, rule, glob_pattern: str) -> str:
-        """Create .mdc content for an AGENTS file with scoped globs.
-
-        Args:
-            rule: The Rule object for the AGENTS file
-            glob_pattern: Glob pattern to scope this rule to its directory
-
-        Returns:
-            String content for the .mdc file
-        """
-        # Build frontmatter
-        frontmatter_lines = ["---"]
-
-        # Add description (use existing if present, otherwise create one)
-        description = rule.description or f"Local context for {rule.path.parent.name}"
-        frontmatter_lines.append(f"description: {description}")
-
-        # Add globs - scope to the directory
-        frontmatter_lines.append(f"globs: {glob_pattern}")
-
-        # Always apply (only auto rules always apply; local rules apply via glob)
-        frontmatter_lines.append("alwaysApply: false")
-
-        # Add any other frontmatter from the original file
-        for key, value in rule.frontmatter.items():
-            if key not in ("description", "globs", "alwaysApply"):
-                # Include other fields as-is
-                if isinstance(value, str):
-                    frontmatter_lines.append(f'{key}: "{value}"')
-                else:
-                    frontmatter_lines.append(f"{key}: {value}")
-
-        frontmatter_lines.append("---")
-
-        # Combine frontmatter and content
-        return "\n".join(frontmatter_lines) + "\n\n" + rule.content
 
     def _generate_conflict_report(
         self, existing_files: List[str], new_files: Dict[str, str]
