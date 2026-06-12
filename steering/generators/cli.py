@@ -7,10 +7,12 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from .budget import compute_always_context
 from .config import load_config
 from .discovery import Discovery, DiscoveryError, resolve_discovery_mode
 from .generator import RuleLoader
 from .models import validate_ruleset
+from .references import validate_references
 from .skills import SkillConflictError, sync_skills
 from .adapters import (
     CursorAdapter,
@@ -232,14 +234,41 @@ def generate(input, output, vendor, dry_run, no_git, config_path):
 @click.option(
     "--input",
     required=True,
-    help="Input directory containing rules/ subdirectory",
+    help="Input directory containing rules/ subdirectory (also the repo root)",
 )
 @click.option(
     "--config-path",
     help="Path to config.yaml (default: {input}/resources/default-config.yaml)",
 )
-def validate(input, config_path):
-    """Validate all rules and check for conflicts."""
+@click.option(
+    "--no-git",
+    is_flag=True,
+    help=(
+        "Discover AGENTS files by scanning the filesystem recursively instead "
+        "of limiting the scan to git-tracked files. Required when the input "
+        "directory is not a git work tree."
+    ),
+)
+@click.option(
+    "--max-context-kb",
+    type=float,
+    default=None,
+    help=(
+        "Fail validation if the always-on context (root CLAUDE.md plus every "
+        "file it @-references transitively) exceeds this many KB. Overrides "
+        "'validate.max_always_context_kb' from the config."
+    ),
+)
+def validate(input, config_path, no_git, max_context_kb):
+    """Validate all rules, AGENTS files, references, and context budget.
+
+    Beyond frontmatter shape and name conflicts, this checks that every
+    @-reference and relative markdown link in the rules, AGENTS files, and
+    skills actually resolves to a file on disk -- catching stale references to
+    deleted files that would otherwise be shipped to agents as broken context.
+    It also computes the always-on context budget and can fail if it grows past
+    a configured ceiling.
+    """
     console.print("[yellow]Validating rules...[/yellow]\n")
 
     input_dir = Path(input)
@@ -257,40 +286,60 @@ def validate(input, config_path):
         console.print(f"[red]ERROR: Failed to load config:[/red] {e}")
         sys.exit(1)
 
-    # Load rules and skills (without AGENTS files for validation)
+    # The input dir doubles as the repository (generation) root for validation,
+    # so AGENTS-file discovery and reference resolution share it.
+    try:
+        discovery_mode = resolve_discovery_mode(config.discovery, no_git, input_dir)
+    except DiscoveryError as e:
+        console.print(f"[red]ERROR:[/red] {e}")
+        sys.exit(1)
+    discovery = Discovery(input_dir, discovery_mode, config.ignored_directories)
+
+    # Load the full ruleset (auto, contextual, AGENTS files, skills) exactly
+    # the way `generate` does, so validation covers the same content that ends
+    # up in generated configs.
     try:
         loader = RuleLoader(config, input_dir)
-        auto_rules = loader.load_auto_rules()
-        contextual_rules = loader.load_contextual_rules()
-        skills = loader.load_skills()
+        ruleset = loader.load_all_rules(input_dir, discovery)
 
-        console.print(f"  Loaded {len(auto_rules)} auto-rule(s)")
-        console.print(f"  Loaded {len(contextual_rules)} contextual rule(s)")
-        console.print(f"  Loaded {len(skills)} skill(s)\n")
-
-        from .models import RuleSet
-
-        ruleset = RuleSet(auto=auto_rules, contextual=contextual_rules, agents=[], skills=skills)
+        console.print(f"  Loaded {len(ruleset.auto)} auto-rule(s)")
+        console.print(f"  Loaded {len(ruleset.contextual)} contextual rule(s)")
+        console.print(f"  Loaded {len(ruleset.agents)} AGENTS file(s)")
+        console.print(f"  Loaded {len(ruleset.skills)} skill(s)\n")
     except Exception as e:
         console.print(f"[red]ERROR: Failed to load rules:[/red] {e}")
         sys.exit(1)
 
-    # Validate
+    errors: list[str] = []
+
+    # Frontmatter shape + name-conflict checks.
     issues = validate_ruleset(ruleset)
-
-    if not issues:
-        console.print("[green]SUCCESS: Validation complete! No issues found.[/green]")
-        sys.exit(0)
-
-    # Separate errors and info messages
-    errors = [i for i in issues if not i.startswith("INFO:")]
+    shape_errors = [i for i in issues if not i.startswith("INFO:")]
     infos = [i for i in issues if i.startswith("INFO:")]
+    errors.extend(shape_errors)
 
-    if errors:
-        console.print("[red]ERROR: Validation errors found:[/red]\n")
-        for error in errors:
-            console.print(f"  • {error}")
-        console.print()
+    # @-reference and markdown-link resolution checks.
+    ref_errors = validate_references(ruleset, input_dir, input_dir)
+    errors.extend(ref_errors)
+
+    # Always-on context budget.
+    budget = compute_always_context(ruleset, input_dir, input_dir)
+    ceiling = max_context_kb if max_context_kb is not None else config.max_always_context_kb
+    console.print(
+        f"[cyan]Always-on context:[/cyan] {budget.total_kb:.1f} KB "
+        f"across {len(budget.files) + 1} file(s) "
+        f"(root CLAUDE.md + {len(budget.files)} @-referenced)"
+    )
+    if ceiling is not None:
+        if budget.total_kb > ceiling:
+            errors.append(
+                f"Always-on context is {budget.total_kb:.1f} KB, over the "
+                f"{ceiling:.1f} KB limit. Trim auto-rules or the files they "
+                f"@-reference, or raise the limit."
+            )
+        else:
+            console.print(f"  [dim](limit: {ceiling:.1f} KB)[/dim]")
+    console.print()
 
     if infos:
         console.print("[cyan]Information:[/cyan]\n")
@@ -299,9 +348,14 @@ def validate(input, config_path):
         console.print()
 
     if errors:
+        console.print("[red]ERROR: Validation errors found:[/red]\n")
+        for error in errors:
+            console.print(f"  • {error}")
+        console.print()
         sys.exit(1)
-    else:
-        console.print("[green]SUCCESS: No errors found[/green]")
+
+    console.print("[green]SUCCESS: Validation complete! No issues found.[/green]")
+    sys.exit(0)
 
 
 @cli.command("list")
