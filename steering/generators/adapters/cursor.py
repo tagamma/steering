@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 
 from ..discovery import Discovery
 from ..models import RuleSet
+from ..references import extract_references
 
 
 class CursorAdapter:
@@ -187,12 +188,12 @@ class CursorAdapter:
         Returns:
             Dict mapping file paths to their content
         """
-        import re
-
         files: Dict[str, str] = {}
 
-        # Find all @ references in the rule content
-        references = re.findall(r"@([\w\-./]+\.[\w]+)", rule.content)
+        # Find all @ references in the rule content. The shared extractor skips
+        # fenced code blocks and ignores emails / user@host strings, so doc
+        # examples like @param or root@weaver.lan are not mistaken for refs.
+        references = [r.target for r in extract_references(rule.content) if r.kind == "at"]
 
         if not references:
             return files
@@ -201,8 +202,12 @@ class CursorAdapter:
         rule_dir = rule.path.parent
 
         for ref in references:
-            # Resolve the referenced file path
+            # Resolve the referenced file path. Refs in .mdc rules resolve
+            # relative to the rule's directory, with the repo root as a
+            # fallback (e.g. @docs/... refs that point at top-level docs).
             ref_path = rule_dir / ref
+            if not ref_path.exists():
+                ref_path = output_dir / ref
 
             if not ref_path.exists():
                 print(
@@ -349,14 +354,15 @@ class CursorAdapter:
         Returns:
             Dict mapping file paths to their content
         """
-        import re
-
         files: Dict[str, str] = {}
 
         for rule in agents_rules:
-            # Find all @ references in the AGENTS file content
-            # Match @filename.ext or @path/to/file.ext
-            references = re.findall(r"@([\w\-./]+\.[\w]+)", rule.content)
+            # Find all @ references in the AGENTS file content. The shared
+            # extractor skips fenced code blocks and ignores emails /
+            # user@host strings.
+            references = [
+                r.target for r in extract_references(rule.content) if r.kind == "at"
+            ]
 
             if not references:
                 continue  # No references to process
@@ -366,9 +372,12 @@ class CursorAdapter:
             local_cursor_dir = agents_dir / ".cursor" / "rules"
 
             for ref in references:
-                # Resolve the referenced file path
-                # References are relative to the AGENTS file's directory
+                # Resolve the referenced file path. References in AGENTS files
+                # are relative to the AGENTS file's directory, with the repo
+                # root as a fallback.
                 ref_path = agents_dir / ref
+                if not ref_path.exists():
+                    ref_path = output_dir / ref
 
                 if not ref_path.exists():
                     print(f"WARN: Referenced file {ref} not found in {agents_dir}")
