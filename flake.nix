@@ -139,7 +139,16 @@
           ]
         );
 
-      steeringApp = pythonSet.mkVirtualEnv "steering-app" workspace.deps.default;
+      # `nix run` (with no explicit attr) builds packages.default and runs the
+      # binary named by meta.mainProgram. Without it, nix falls back to the
+      # derivation name ("steering-app") and fails because the binary is
+      # actually "steering". Set mainProgram so `nix run github:tagamma/steering`
+      # just works.
+      steeringApp =
+        (pythonSet.mkVirtualEnv "steering-app" workspace.deps.default)
+        .overrideAttrs (old: {
+          meta = (old.meta or {}) // {mainProgram = "steering";};
+        });
     in {
       default = steeringApp;
       steering = steeringApp;
