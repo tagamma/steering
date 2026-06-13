@@ -139,7 +139,12 @@
           ]
         );
 
-      steeringApp = pythonSet.mkVirtualEnv "steering-app" workspace.deps.default;
+      # Set mainProgram so `nix run github:tagamma/steering` just works.
+      steeringApp =
+        (pythonSet.mkVirtualEnv "steering-app" workspace.deps.default)
+        .overrideAttrs (old: {
+          meta = (old.meta or {}) // {mainProgram = "steering";};
+        });
     in {
       default = steeringApp;
       steering = steeringApp;
