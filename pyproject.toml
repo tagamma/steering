@@ -11,8 +11,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["click>=8.1.0", "pyyaml>=6.0", "rich>=13.0.0"]
 
+[dependency-groups]
+dev = ["pytest>=8.0.0"]
+
 [project.scripts]
 steering = "steering.generators.cli:cli"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["."]

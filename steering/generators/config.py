@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import yaml
 
 from .discovery import VALID_DISCOVERY_SETTINGS
@@ -64,6 +64,14 @@ class Config:
         self.cursor_settings = self._data.get("cursor", {})
         self.claude_settings = self._data.get("claude", {})
 
+        # Validation settings. max_always_context_kb caps the always-loaded
+        # context size (root CLAUDE.md + transitively @-referenced files);
+        # None means no ceiling (size is reported but never fails validate).
+        validate_settings = self._data.get("validate", {})
+        self.max_always_context_kb: Optional[float] = validate_settings.get(
+            "max_always_context_kb"
+        )
+
     def validate(self) -> List[str]:
         """Validate the configuration and return any issues.
 
@@ -105,6 +113,11 @@ class Config:
                         f"Invalid vendor in skills.vendor_destinations: '{vendor}'. "
                         f"Must be one of: {', '.join(VALID_VENDORS)}"
                     )
+
+        if self.max_always_context_kb is not None and not isinstance(
+            self.max_always_context_kb, (int, float)
+        ):
+            issues.append("'validate.max_always_context_kb' must be a number")
 
         # Warn about suspicious configurations
         if not self.auto_rules_glob:

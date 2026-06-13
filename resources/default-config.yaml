@@ -69,6 +69,16 @@ ignored_directories:
   # Don't discover rules in the steering project itself
   - rules
 
+# Validation settings (used by `steering validate`).
+validate:
+  # Ceiling, in KB, for the always-on context: the generated root CLAUDE.md
+  # plus every file it @-references transitively (auto-rules, root AGENTS.md,
+  # and whatever those reference in turn). This is what every agent ingests no
+  # matter what it's working on, so it's worth keeping bounded. validate always
+  # prints the measured size; set a number here (or pass --max-context-kb) to
+  # fail when it's exceeded. Leave unset for report-only.
+  # max_always_context_kb: 64
+
 # Vendor-specific settings
 # NOTE: Cursor reads root and nested AGENTS.md files natively, so no wrapper
 # .mdc files are generated for them; only auto/contextual rule symlinks and
