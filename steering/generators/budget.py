@@ -1,15 +1,4 @@
-"""Always-on context budget computation.
-
-The "always loaded" context is everything an agent ingests no matter what it is
-working on: the generated root ``CLAUDE.md``, plus every file that document
-pulls in transitively via ``@`` references (the auto-rules, the root
-``AGENTS.md``, and whatever those reference in turn).
-
-We reuse the Claude adapter's own assembly of the root ``CLAUDE.md`` so the
-measured content matches what ``generate`` would actually emit, then follow
-``@`` references transitively to add up the byte size of everything that ends
-up in the always-on context.
-"""
+"""Always-on context budget computation."""
 
 from dataclasses import dataclass, field
 from pathlib import Path
