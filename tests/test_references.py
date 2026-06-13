@@ -1,10 +1,12 @@
 """Tests for @-reference and markdown-link extraction and resolution."""
 
+import subprocess
 from pathlib import Path
 
 from steering.generators.models import Rule, RuleSet, Skill
 from steering.generators.references import (
     extract_references,
+    is_gitignored,
     resolves,
     strip_code_blocks,
     validate_references,
@@ -192,3 +194,41 @@ def test_dangling_symlink_counts_as_resolved(tmp_path: Path):
 
 def test_resolves_returns_false_when_absent(tmp_path: Path):
     assert resolves("nope.md", [tmp_path]) is False
+
+
+# --- resolution: git-ignored host-local references --------------------------
+
+
+def _git_init(root: Path) -> None:
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+
+
+def test_gitignored_reference_is_not_broken(tmp_path: Path):
+    # A reference to a deliberately .gitignore'd host-local file (e.g.
+    # LOCALCONTEXT.md, "you are running on mantis") is correct even though the
+    # file is absent from a fresh checkout -- git check-ignore matches on the
+    # pattern, not on the file existing.
+    root = tmp_path
+    _git_init(root)
+    (root / ".gitignore").write_text("/LOCALCONTEXT.md\n", encoding="utf-8")
+    # Note: LOCALCONTEXT.md is intentionally NOT created on disk.
+    rule = Rule(
+        name="AGENTS",
+        type="agents",
+        path=root / "AGENTS.md",
+        frontmatter={},
+        content="@LOCALCONTEXT.md",
+    )
+    ruleset = RuleSet(auto=[], contextual=[], agents=[rule], skills=[])
+    assert validate_references(ruleset, root, root) == []
+
+
+def test_is_gitignored_true_for_ignored_false_otherwise(tmp_path: Path):
+    root = tmp_path
+    _git_init(root)
+    (root / ".gitignore").write_text("/LOCALCONTEXT.md\n", encoding="utf-8")
+    assert is_gitignored("LOCALCONTEXT.md", [root]) is True
+    # A non-ignored path, and a base that is not a git work tree, are both False
+    # (the latter guards against accidental suppression of real broken refs).
+    assert is_gitignored("tracked.md", [root]) is False
+    assert is_gitignored("LOCALCONTEXT.md", [root / "nonexistent"]) is False

@@ -20,7 +20,10 @@ Resolution semantics differ by where the reference lives:
   resolve relative to the directory containing the file.
 
 In all cases a reference is considered resolved if it exists under *any* of its
-candidate bases. If it resolves under none, it is reported as broken.
+candidate bases. If it resolves under none, it is reported as broken -- unless
+its target is deliberately git-ignored (a host-local file like LOCALCONTEXT.md
+that is intentionally absent from a fresh checkout and from CI), in which case
+the reference is correct and left alone.
 
 Distinguishing real path references from prose is inherently fuzzy: agents
 write ``@high/@medium/@low`` energy tags, ``@property`` decorators, and
@@ -30,6 +33,7 @@ a file extension. Bare single words (``@high``, ``@property``) are left alone.
 """
 
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, List
@@ -180,6 +184,35 @@ def resolves(target: str, bases: List[Path]) -> bool:
     return False
 
 
+def is_gitignored(target: str, bases: List[Path]) -> bool:
+    """Whether a reference target is a deliberately git-ignored path.
+
+    Some references intentionally point at host-local files kept out of version
+    control -- e.g. a per-machine ``LOCALCONTEXT.md`` listed in ``.gitignore``
+    ("you are running on mantis"). Those files are absent from a fresh checkout
+    and from CI, so the plain existence check in ``resolves`` flags them as
+    broken even though the reference is correct. We treat a target as resolved
+    when, under any of its bases, git reports the path as ignored.
+    ``git check-ignore`` matches on patterns rather than on the file existing,
+    so this holds in CI where the host-local file is genuinely absent.
+    """
+    for base in bases:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(base), "check-ignore", "-q", target],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            continue
+        # 0 = path is ignored; 1 = not ignored; 128 = outside a work tree / bad
+        # path. Only a clean match counts.
+        if result.returncode == 0:
+            return True
+    return False
+
+
 def validate_references(
     ruleset: "RuleSet", output_dir: Path, input_dir: Path
 ) -> List[str]:
@@ -194,7 +227,8 @@ def validate_references(
     - ``AGENTS.md``/``SKILL.md``: the file's own directory and the repository
       (generation) root.
 
-    A reference is an error only if it resolves under none of its bases.
+    A reference is an error only if it resolves under none of its bases and its
+    target is not git-ignored (deliberately host-local files are exempt).
 
     Args:
         ruleset: The loaded ruleset (auto/contextual/agents/skills).
@@ -229,6 +263,11 @@ def validate_references(
     for source_path, content, bases in sources:
         for ref in extract_references(content):
             if resolves(ref.target, bases):
+                continue
+            # A reference to a deliberately git-ignored host-local file (e.g.
+            # LOCALCONTEXT.md) is correct even though the file is absent from a
+            # fresh checkout / CI -- don't flag it as broken.
+            if is_gitignored(ref.target, bases):
                 continue
             try:
                 rel_source = source_path.relative_to(output_dir)
