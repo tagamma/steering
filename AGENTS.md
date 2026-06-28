@@ -20,8 +20,9 @@ projects/steering/
 ### Critical Implementation Logic
 
 1. **Cursor Adapter (`adapters/cursor.py`)**:
-   - **Symlinks**: Most rules are symlinked to `.cursor/rules/`.
-   - **Agent Wrapping**: `AGENTS.md` files are *not* symlinked. They are wrapped in a new `.mdc` file that includes their content + a directory-scoped `glob`. This is because Cursor doesn't natively support "local" rules in scattered directories yet.
+   - **Symlinks**: Auto/contextual rules symlinked to `.cursor/rules/`.
+   - **Root AGENTS.md**: `@` refs embedded as alwaysApply `ref-*.mdc` (Cursor doesn't expand them).
+   - **Nested AGENTS.md**: Glob-scoped wrapper `.mdc` in `.cursor/rules/` (Cursor doesn't load nested files).
 
 2. **Claude Adapter (`adapters/claude.py`)**:
    - **Reference**: Generates `CLAUDE.md` using `@` references.

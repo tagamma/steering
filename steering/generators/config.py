@@ -67,7 +67,9 @@ class Config:
         # Validation settings. max_always_context_kb caps the always-loaded
         # context size (root CLAUDE.md + transitively @-referenced files);
         # None means no ceiling (size is reported but never fails validate).
-        validate_settings = self._data.get("validate", {})
+        # `or {}` (not a .get default): a present-but-empty `validate:` section
+        # parses to None, which would break .get() below.
+        validate_settings = self._data.get("validate") or {}
         self.max_always_context_kb: Optional[float] = validate_settings.get(
             "max_always_context_kb"
         )

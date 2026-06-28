@@ -80,9 +80,7 @@ validate:
   # max_always_context_kb: 64
 
 # Vendor-specific settings
-# NOTE: Cursor reads root and nested AGENTS.md files natively, so no wrapper
-# .mdc files are generated for them; only auto/contextual rule symlinks and
-# ref-*.mdc embeds (for @ references Cursor doesn't follow) go to .cursor/rules.
+# Cursor: rule symlinks, ref-*.mdc (@refs), nested AGENTS.md → glob-scoped wrappers.
 claude:
   # Include auto-rules directly via @ references
   auto_include: true
