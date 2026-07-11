@@ -13,7 +13,7 @@ from .discovery import Discovery, DiscoveryError, resolve_discovery_mode
 from .generator import RuleLoader
 from .models import validate_ruleset
 from .references import validate_references
-from .skills import SkillConflictError, sync_skills
+from .skills import SkillConflictError, sync_skills, validate_skill_layouts
 from .adapters import (
     CursorAdapter,
     ClaudeAdapter,
@@ -133,9 +133,13 @@ def generate(input, output, vendor, dry_run, no_git, config_path):
         traceback.print_exc()
         sys.exit(1)
 
+    # Resolve the active vendors before validation: a few filesystem contracts
+    # (notably Codex's skill-directory symlink rule) are vendor-specific.
+    vendors = config.default_vendors if vendor == "all" else [vendor]
+
     # Validate rules
     console.print("[cyan]Validating rules...[/cyan]")
-    issues = validate_ruleset(ruleset)
+    issues = validate_ruleset(ruleset) + validate_skill_layouts(ruleset.skills, vendors)
     if issues:
         errors = [i for i in issues if not i.startswith("INFO:")]
         infos = [i for i in issues if i.startswith("INFO:")]
@@ -153,9 +157,6 @@ def generate(input, output, vendor, dry_run, no_git, config_path):
     console.print("  ✅ All rules valid\n")
 
     # Generate configurations
-    # Use config.default_vendors when vendor is "all", otherwise use specified vendor
-    vendors = config.default_vendors if vendor == "all" else [vendor]
-
     adapters = {
         "cursor": CursorAdapter(),
         "claude": ClaudeAdapter(),
@@ -317,6 +318,10 @@ def validate(input, config_path, no_git, max_context_kb):
     shape_errors = [i for i in issues if not i.startswith("INFO:")]
     infos = [i for i in issues if i.startswith("INFO:")]
     errors.extend(shape_errors)
+
+    # Vendor filesystem contracts. Validation uses the configured default set,
+    # matching `generate --vendor all`.
+    errors.extend(validate_skill_layouts(ruleset.skills, config.default_vendors))
 
     # @-reference and markdown-link resolution checks.
     ref_errors = validate_references(ruleset, input_dir, input_dir)

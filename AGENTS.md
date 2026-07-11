@@ -33,6 +33,13 @@ projects/steering/
    - The filesystem walk never follows directory symlinks (recursive `glob` did, which let scans escape into Nix `result` symlinks and similar).
    - Respects `ignored_directories` from config to avoid scanning `node_modules` etc.
 
+4. **Skill links (`skills.py`)**:
+   - `.agents/skills/<name>` may be a symlink to a complete skill directory.
+   - Never symlink only `.agents/skills/<name>/SKILL.md`: Codex ignores individual
+     manifest symlinks. Keep the manifest regular inside the directory target.
+   - `steering validate` enforces this when `codex` is enabled; keep the regular,
+     directory-symlink, and manifest-symlink cases covered by tests.
+
 ### Development Workflow
 
 - Enter dev shell with all deps with `nix develop`.

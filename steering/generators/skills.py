@@ -3,12 +3,37 @@ from pathlib import Path
 from typing import Dict, List
 
 from .config import Config
+from .models import Skill
 
 
 class SkillConflictError(Exception):
     """Raised when a skill destination conflicts with an existing non-symlink entry."""
 
     pass
+
+
+def validate_skill_layouts(skills: List[Skill], vendors: List[str]) -> List[str]:
+    """Validate vendor-specific filesystem requirements for installed skills.
+
+    Codex follows symlinked skill directories, but deliberately ignores an
+    individual ``SKILL.md`` that is itself a symlink. Nix and Home Manager can
+    produce that unsupported shape when a skill directory is installed with
+    recursive linking, so catch it before generation reports a clean result.
+    """
+    if "codex" not in vendors:
+        return []
+
+    errors: List[str] = []
+    for skill in skills:
+        if skill.path.is_symlink():
+            errors.append(
+                f"Skill '{skill.name}' uses a symlinked SKILL.md at "
+                f"'{skill.path}'. Codex ignores individual manifest symlinks; "
+                "symlink the whole skill directory or store a regular SKILL.md "
+                "there instead."
+            )
+
+    return errors
 
 
 def sync_skills(

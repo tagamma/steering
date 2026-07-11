@@ -11,7 +11,9 @@ class CodexAdapter:
     Codex reads ``AGENTS.md`` (walking up to the repo root) and discovers
     skills under ``.agents/skills/`` natively. Both are source-of-truth files
     steering already manages, so nothing needs generating. This adapter exists
-    only so users can list ``codex`` in ``default_vendors``.
+    only so users can list ``codex`` in ``default_vendors``. Steering's shared
+    validation also enforces Codex's skill layout: symlink the whole skill
+    directory, never the individual ``SKILL.md`` manifest.
 
     https://developers.openai.com/codex/skills
     """
