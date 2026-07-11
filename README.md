@@ -46,7 +46,22 @@ Steering generates native configurations for supported tools, for example:
 - **Cursor**: Creates symlinks in `.cursor/rules/` (preserving frontmatter).
 - **Claude**: Generates `CLAUDE.md` with `@` references.
 - **Gemini**: Cleanup-only. Gemini CLI reads `AGENTS.md` natively (set `contextFileName` to `AGENTS.md` in `.gemini/settings.json`) and `.agents/skills/` natively, so no `GEMINI.md` is generated; the adapter only deletes stale `GEMINI.md` files left over from when steering used to generate them.
-- **Codex**: No-op. Codex reads `AGENTS.md` and `.agents/skills/` natively, both of which steering already manages as source-of-truth. Listed as a vendor only so its support is explicit.
+- **Codex**: No generated files. Codex reads `AGENTS.md` and `.agents/skills/` natively, both of which steering already manages as source-of-truth. Steering still validates Codex's filesystem contract: a complete skill directory may be symlinked, but an individual `SKILL.md` may not.
+
+### Skill link layout
+
+Keep `.agents/skills/<name>/SKILL.md` as a regular file. When the source lives
+elsewhere, symlink the complete `<name>` directory into `.agents/skills/`:
+
+```text
+.agents/skills/agd -> ../../nix/packages/agd/skill
+```
+
+Don't create a real `agd/` directory containing only a symlinked `SKILL.md`.
+Claude Code accepts that shape, but Codex intentionally ignores it. `steering
+validate` rejects the incompatible layout whenever `codex` is in
+`default_vendors`; copying the complete directory also works, but a directory
+symlink preserves one source of truth.
 
 ### Rule Format (MDC)
 

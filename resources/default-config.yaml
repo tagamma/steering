@@ -36,7 +36,9 @@ contextual_rules_glob: "rules/contextual-rules/*.mdc"
 
 # Pattern for discovering skill definitions (SKILL.md files)
 # Each skill lives in its own subdirectory; the directory name is the skill name
-# Supports symlinks, so skills defined elsewhere can be linked in
+# Supports symlinked skill directories, so skills defined elsewhere can be
+# linked in. Don't symlink only SKILL.md: Codex deliberately ignores individual
+# manifest symlinks even though it follows the directory form.
 skills_glob: "rules/skills/*/SKILL.md"
 
 # Pattern for discovering local AGENTS files throughout the repository
@@ -105,7 +107,9 @@ copilot:
 # Skills always live at .agents/skills/<name> (the canonical "open agent
 # skills standard" location). The source path is not configurable -- making
 # it canonical means tools like Codex and Gemini CLI find skills there
-# without any symlinking. For tools that don't, list a destination below
+# without a vendor-specific destination. Each child may itself be a symlink to
+# a complete skill directory; keep SKILL.md regular inside that target. For
+# tools that don't read the canonical path, list a destination below
 # and steering will symlink each skill into it.
 skills:
   # Where to symlink skills for each vendor.
@@ -125,4 +129,3 @@ skills:
     # Gemini CLI also reads .agents/skills/ natively. Uncomment if you also
     # want symlinks under .gemini/skills/.
     # gemini: ".gemini/skills"
-
