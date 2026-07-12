@@ -22,8 +22,9 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["steering*"]
+include = ["steering*", "resources*"]
 exclude = ["rules*", "data*", "tests*", ".*", "scripts*"]
 
 [tool.setuptools.package-data]
 steering = ["py.typed"]
+resources = ["*.yaml"]
