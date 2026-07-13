@@ -9,6 +9,7 @@ from steering.generators.references import (
     is_gitignored,
     resolves,
     strip_code_blocks,
+    strip_inline_code,
     validate_references,
 )
 
@@ -90,6 +91,18 @@ def test_tilde_fences_skipped():
 def test_strip_code_blocks_preserves_line_count():
     content = "a\n```\nx\ny\n```\nb"
     assert len(strip_code_blocks(content).split("\n")) == len(content.split("\n"))
+
+
+def test_inline_code_spans_skipped():
+    # `dig @100.100.100.100` is a shell example, not a reference to a file
+    # named 100.100.100.100 -- reported as a broken reference before this.
+    content = "run `dig @100.100.100.100 <name>` first, then read @real.md"
+    assert _targets(content, "at") == {"real.md"}
+
+
+def test_inline_code_preserves_line_count():
+    content = "a `@x.md`\nb `@y.md`\nc"
+    assert len(strip_inline_code(content).split("\n")) == len(content.split("\n"))
 
 
 # --- extractor: markdown links ----------------------------------------------

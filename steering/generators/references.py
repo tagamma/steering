@@ -94,6 +94,26 @@ def strip_code_blocks(content: str) -> str:
     return "\n".join(out)
 
 
+def strip_inline_code(content: str) -> str:
+    """Blank out inline code spans (`` `...` ``) so their contents aren't scanned.
+
+    Same reasoning as the fenced-block strip, one level down: prose says things
+    like ``dig @100.100.100.100`` or ``@decorator`` inside backticks, and a
+    dotted token in a shell example looks exactly like a path reference to the
+    extractor. It isn't one, and reporting it as a broken reference sends people
+    off to hunt for a file that was never meant to exist.
+
+    Replaces the span (backticks included) with spaces so offsets and line count
+    survive. Handles multi-backtick delimiters (``` ``code with ` inside`` ```).
+    """
+    return re.sub(
+        r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)",
+        lambda m: " " * len(m.group(0)),
+        content,
+        flags=re.DOTALL,
+    )
+
+
 def _clean_target(target: str) -> str:
     """Strip trailing sentence punctuation while keeping real path chars.
 
@@ -124,12 +144,13 @@ def _looks_like_path(target: str) -> bool:
 def extract_references(content: str) -> List[Reference]:
     """Extract @-references and relative markdown links from content.
 
-    Fenced code blocks are skipped (they contain shell examples and doc
-    snippets with ``@`` and link-like tokens). Emails and ``user@host``
-    strings are never matched as @-references. Bare prose words that merely
-    start with ``@`` (org tags, decorators) are not treated as references.
+    Fenced code blocks and inline code spans are skipped (both carry shell
+    examples and doc snippets with ``@`` and link-like tokens). Emails and
+    ``user@host`` strings are never matched as @-references. Bare prose words
+    that merely start with ``@`` (org tags, decorators) are not treated as
+    references.
     """
-    body = strip_code_blocks(content)
+    body = strip_inline_code(strip_code_blocks(content))
     refs: List[Reference] = []
     seen = set()
 
