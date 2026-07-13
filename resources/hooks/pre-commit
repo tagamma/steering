@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# Pre-commit hook: verify the AI configs staged for commit are in sync with the
+# staged rule sources. CHECK-ONLY: it regenerates into a throwaway snapshot of
+# the index and compares — it never writes to your working tree and never stages
+# anything. On drift it blocks the commit and prints how to refresh the
+# generated files yourself.
+#
+# Why check-only, when the old example regenerated in place and staged the
+# result? Three ways that bites you, all observed in real repos:
+#
+#   1. The commit stops matching what you staged. The hook stages generated
+#      files you never reviewed — including drift left behind by SOMEONE ELSE'S
+#      earlier commit — so the diff you read is not the diff you ship. That's a
+#      bad surprise for a human and a worse one for an AI agent, which reasons
+#      about the diff it staged.
+#   2. It generates from the WORKING TREE, not the index. Half-finished edits to
+#      an AGENTS.md leak into the generated output and get committed.
+#   3. `--output .` writes wherever it can reach — including into submodules,
+#      where it happily deletes generated files the submodule's own steering
+#      owns, leaving the submodule dirty behind your back.
+#
+# Snapshotting the index makes all three impossible: generation happens in a
+# temp dir built from exactly what you're committing, and the only thing the
+# hook can do to your repo is refuse the commit.
+#
+# Wire it up once per clone — keep the hook IN the repo, tracked, so a fresh
+# clone gets it instead of silently getting no hook at all:
+#
+#   mkdir -p .githooks && cp resources/hooks/pre-commit .githooks/
+#   git config core.hooksPath .githooks
+#
+# Steering runs via uvx when available, falling back to nix. If your CI checks
+# drift too (it should), set STEERING_CMD to whatever CI runs — a hook and a CI
+# job that disagree about the steering version will disagree about drift.
+
+set -euo pipefail
+
+# --- Configuration ---
+
+# Full override for how steering is invoked; subcommand args are appended.
+# Example: STEERING_CMD="nix run github:tagamma/steering --"
+STEERING_CMD="${STEERING_CMD:-}"
+
+# Sources for the default runners.
+STEERING_GIT_URL="${STEERING_GIT_URL:-git+https://github.com/tagamma/steering}"
+STEERING_FLAKE_URI="${STEERING_FLAKE_URI:-github:tagamma/steering}"
+
+# Path to the steering configuration file (repo-relative).
+STEERING_CONFIG="${STEERING_CONFIG:-steering.yaml}"
+
+# --- End Configuration ---
+
+# No config file -> steering isn't set up for this checkout; do nothing.
+if [ ! -f "$STEERING_CONFIG" ]; then
+    exit 0
+fi
+
+# Check only when the staged files include rule sources: AGENTS.(md|mdc) at any
+# depth, any *.mdc, steering.yaml, rules/, or the .agents tree (rules AND
+# skills — adding or removing a skill changes the generated output just as much
+# as editing a rule does, and a pattern that only watches AGENTS.md misses it).
+# Generated .cursor trees also contain .mdc files — exclude them, they're
+# outputs, not sources.
+relevant_files=$(git diff --cached --name-only \
+    | grep -E '(^|/)AGENTS\.(md|mdc)$|\.mdc$|^steering\.yaml$|^rules/|^\.agents/' \
+    | grep -Ev '(^|/)\.cursor/' || true)
+
+if [ -z "$relevant_files" ]; then
+    exit 0
+fi
+
+# Resolve how to run steering; the same command is echoed in failure messages.
+if [ -n "$STEERING_CMD" ]; then
+    # shellcheck disable=SC2206 -- STEERING_CMD is a command line; split it.
+    steering=($STEERING_CMD)
+elif command -v uvx >/dev/null 2>&1; then
+    steering=(uvx --from "$STEERING_GIT_URL" steering)
+elif command -v nix >/dev/null 2>&1; then
+    steering=(nix run "$STEERING_FLAKE_URI" --)
+else
+    echo "steering pre-commit hook: neither uvx nor nix found on PATH." >&2
+    echo "Install uv (https://docs.astral.sh/uv/) or set STEERING_CMD." >&2
+    exit 1
+fi
+
+echo "Staged changes touch steering rule sources:"
+echo "$relevant_files" | sed 's/^/  - /'
+echo ""
+echo "Checking staged AI configs are in sync (your working tree is not touched)..."
+
+snapshot=$(mktemp -d)
+genlog=$(mktemp)
+trap 'rm -rf "$snapshot" "$genlog"' EXIT
+
+# Snapshot exactly what is being committed (the index), so unstaged WIP can
+# neither be clobbered nor leak into the check. The snapshot repo's index
+# records the pre-generation state; drift shows up as unstaged changes there.
+git checkout-index -a --prefix="$snapshot/"
+
+# checkout-index skips submodules (they're gitlinks, not files), but steering
+# discovers AGENTS.md files across the whole tree — a snapshot missing a
+# submodule generates a different index than CI does and reports false drift.
+# So materialize each submodule at the commit the INDEX pins (what you're
+# committing), not at whatever the working tree happens to have checked out.
+submodule_excludes=()
+while read -r mode sha _stage path; do
+    [ "$mode" = "160000" ] || continue
+    submodule_excludes+=(":(exclude)$path/**")
+    if ! git -C "$path" cat-file -e "${sha}^{commit}" 2>/dev/null; then
+        echo "steering pre-commit hook: submodule '$path' is not initialized, so a" >&2
+        echo "faithful snapshot is impossible. Skipping the check — run 'git submodule" >&2
+        echo "update --init $path' to re-enable it (CI still gates drift)." >&2
+        exit 0
+    fi
+    mkdir -p "$snapshot/$path"
+    git -C "$path" archive "$sha" | tar -x -C "$snapshot/$path"
+done < <(git ls-files -s)
+
+git -C "$snapshot" init -q
+git -C "$snapshot" add -A
+
+# --no-git: the snapshot has no git history, and it contains only staged files,
+# so a filesystem scan discovers exactly what git discovery would.
+if ! "${steering[@]}" generate --input "$snapshot" --output "$snapshot" --no-git \
+        --config-path "$snapshot/$STEERING_CONFIG" >"$genlog" 2>&1; then
+    cat "$genlog"
+    echo ""
+    echo "COMMIT BLOCKED: steering failed to generate AI configurations."
+    echo "Fix the errors above and try committing again."
+    exit 1
+fi
+
+# Generated outputs at any depth. ':(glob)**/X' matches root-level X too (the
+# leading '**/' matches in all directories, including the repo root). Submodules
+# are excluded: whatever steering wrote inside one belongs to that repo's own
+# steering run, not to this commit.
+generated_pathspecs=(
+    ':(glob)**/CLAUDE.md'
+    ':(glob)**/.cursor/rules/**'
+    '.cursor/skills'
+    '.claude/skills'
+    "${submodule_excludes[@]}"
+)
+
+# In the snapshot repo every file is staged as 'A '; anything steering modified,
+# deleted, or newly created shows as 'AM', 'AD', or '??'.
+drift=$(git -C "$snapshot" -c core.fileMode=false status --porcelain \
+    -- "${generated_pathspecs[@]}" | grep -v '^A ' || true)
+
+if [ -n "$drift" ]; then
+    # Quote pathspecs so the printed command is copy-paste safe (unquoted **
+    # would be glob-expanded by fish and by bash with globstar).
+    quoted_pathspecs=$(printf " '%s'" ':(glob)**/CLAUDE.md')
+    echo ""
+    echo "COMMIT BLOCKED: staged AI configs are out of sync with the staged rule sources."
+    echo "Nothing was changed or staged for you. Pick one:"
+    echo ""
+    echo "  1) Refresh the generated configs and stage them (usual case):"
+    echo "       ${steering[*]} generate --input . --output . --config-path $STEERING_CONFIG"
+    echo "       git add -A --${quoted_pathspecs}"
+    echo "     then re-run your commit. Generation reads the working tree, so also"
+    echo "     stage any rule-source edits you want reflected."
+    echo ""
+    echo "  2) Ignore for now: re-commit with --no-verify. If CI gates drift, it will"
+    echo "     fail the PR until the generated configs are refreshed."
+    echo ""
+    echo "Out-of-sync files (vs freshly generated):"
+    echo "$drift" | sed 's/^/  /'
+    exit 1
+fi
+
+echo "AI configs are in sync."
+exit 0

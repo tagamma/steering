@@ -101,10 +101,22 @@ steering/
 Currently, the expected workflow is:
 
 1. **Clone locally**: Clone this repository to your machine.
-2. **Pre-commit Hook**: Setup a git hook to automatically regenerate configs when rules change.
-   - **Nix Users**: Copy `resources/hooks/pre-commit-nix` to `.git/hooks/pre-commit`.
-   - **Manual Users**: Copy `resources/hooks/pre-commit-manual` to `.git/hooks/pre-commit` (ensure `steering` is in your PATH).
-   - Make it executable: `chmod +x .git/hooks/pre-commit`.
+2. **Pre-commit Hook**: Install `resources/hooks/pre-commit`, which blocks a commit whose
+   generated configs have drifted from the rule sources it stages.
+
+   ```bash
+   mkdir -p .githooks && cp resources/hooks/pre-commit .githooks/
+   chmod +x .githooks/pre-commit
+   git config core.hooksPath .githooks   # tracked hook: a fresh clone runs one command, not zero
+   ```
+
+   It runs steering via `uvx`, falling back to `nix`; set `STEERING_CMD` to pin it to
+   whatever your CI runs. The hook is **check-only** — it regenerates into a throwaway
+   snapshot of your *index*, never writes to your working tree, and never stages anything.
+   On drift it prints the command that fixes it. (The old examples regenerated in place
+   and auto-staged the result, which meant a commit could quietly carry generated changes
+   nobody reviewed — and, in a repo with submodules, clobber generated files the submodule
+   owns. The header comment in the hook has the full story.)
 3. **Manual CLI**: You can also manually invoke the `steering` CLI from your repository root.
 4. **Nix Run**: If you use Nix, you can invoke the CLI directly without cloning as well: `nix run github:tagamma/steering`.
 
