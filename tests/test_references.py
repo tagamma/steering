@@ -9,6 +9,8 @@ from steering.generators.references import (
     is_gitignored,
     resolves,
     strip_code_blocks,
+    strip_html_comments,
+    strip_indented_code_blocks,
     strip_inline_code,
     validate_references,
 )
@@ -105,6 +107,105 @@ def test_inline_code_preserves_line_count():
     assert len(strip_inline_code(content).split("\n")) == len(content.split("\n"))
 
 
+def test_multiline_inline_code_preserves_line_count():
+    # A wrapped code span (real corpus: an AGENTS.md wraps a JSON schema across
+    # lines inside one pair of backticks) must keep its newlines when blanked.
+    content = 'schema: `{"a": 1,\n"b": 2}` end'
+    assert len(strip_inline_code(content).split("\n")) == len(content.split("\n"))
+
+
+def test_inline_code_span_across_single_newline_still_stripped():
+    content = "run `dig @1.1.1.1\n+short` first, then @real.md"
+    assert _targets(content, "at") == {"real.md"}
+
+
+def test_stray_backticks_do_not_pair_across_blank_lines():
+    # Two stray backticks in different paragraphs must not be treated as one
+    # giant code span -- that would blank the prose between them and hide a
+    # genuinely broken reference. Markdown wouldn't pair them either: a blank
+    # line ends the paragraph.
+    content = "a stray ` here\n\nsee @broken.md\n\nanother stray ` there"
+    assert _targets(content, "at") == {"broken.md"}
+
+
+# --- extractor: indented code blocks are skipped -----------------------------
+
+
+def test_indented_code_blocks_skipped():
+    # Four-space indentation after a blank line is markdown's other code
+    # syntax; a shell example written that way is not a reference to a file
+    # named 100.100.100.100.
+    content = (
+        "Resolve names directly:\n"
+        "\n"
+        "    dig @100.100.100.100 weaver.lan\n"
+        "    cat @notes.fake.md\n"
+        "\n"
+        "then read @real.md\n"
+    )
+    assert _targets(content, "at") == {"real.md"}
+
+
+def test_tab_indented_code_blocks_skipped():
+    content = "example:\n\n\tdig @9.9.9.9.md host\n\nsee @real.md"
+    assert _targets(content, "at") == {"real.md"}
+
+
+def test_indented_block_interior_blank_line_does_not_end_it():
+    # Blank lines inside an indented block keep the block going; only a
+    # non-blank, non-indented line ends it.
+    content = "code:\n\n    @a.fake.md\n\n    @b.fake.md\n\nprose @real.md"
+    assert _targets(content, "at") == {"real.md"}
+
+
+def test_nested_list_items_are_not_code():
+    # A 4-space sub-bullet directly under its parent item is prose (an
+    # indented code block can't interrupt a paragraph), so references there
+    # still count.
+    content = "- outer item\n    - nested item, see @nested.md"
+    assert _targets(content, "at") == {"nested.md"}
+
+
+def test_indented_continuation_line_still_scanned():
+    # Lazy continuation of a paragraph: indentation without a preceding blank
+    # line is still prose.
+    content = "See the following file\n    @cont.md for details"
+    assert _targets(content, "at") == {"cont.md"}
+
+
+def test_strip_indented_code_blocks_preserves_line_count():
+    content = "a:\n\n    x\n\n    y\n\nb"
+    assert len(strip_indented_code_blocks(content).split("\n")) == len(
+        content.split("\n")
+    )
+
+
+# --- extractor: HTML comments are skipped ------------------------------------
+
+
+def test_html_comments_skipped():
+    # Commented-out sections keep their old refs around on purpose; flagging
+    # them as broken would force deleting the comment to commit.
+    content = "keep @real.md\n<!-- retired: see @old-notes.md -->\nend"
+    assert _targets(content, "at") == {"real.md"}
+
+
+def test_multiline_html_comment_skipped():
+    content = "a\n<!--\n@gone.md\n[x](dead.md)\n-->\nb @real.md"
+    assert _targets(content) == {"real.md"}
+
+
+def test_strip_html_comments_preserves_line_count():
+    content = "a\n<!--\nx\ny\n-->\nb"
+    assert len(strip_html_comments(content).split("\n")) == len(content.split("\n"))
+
+
+def test_unclosed_html_comment_left_alone():
+    # An unclosed <!-- must not eat the rest of the document.
+    content = "a <!-- dangling\nstill prose @real.md"
+    assert _targets(content, "at") == {"real.md"}
+
+
 # --- extractor: markdown links ----------------------------------------------
 
 
@@ -131,6 +232,35 @@ def test_placeholder_link_text_skipped():
 
 def test_link_fragment_stripped_for_resolution():
     assert _targets("[s](foo.md#section)", "link") == {"foo.md"}
+
+
+def test_link_title_dropped_from_target():
+    # CommonMark allows a quoted title after the destination. The title is not
+    # part of the path; validating 'guide.md "the guide"' as one target
+    # reports a perfectly valid link to an existing file as broken.
+    assert _targets('[guide](docs/guide.md "the guide")', "link") == {"docs/guide.md"}
+    assert _targets("[g](docs/guide.md 'the guide')", "link") == {"docs/guide.md"}
+
+
+def test_angle_bracket_destination_unwrapped():
+    # CommonMark allows the destination in <...> (it may contain spaces).
+    assert _targets("[f](<docs/my file.md>)", "link") == {"docs/my file.md"}
+    # URL check still applies after unwrapping.
+    assert _targets("[u](<https://example.com/a b>)", "link") == set()
+
+
+def test_autolinks_and_bare_urls_not_references():
+    # Autolinks, bare URLs, and scp-style remotes never matched either pattern
+    # -- this just pins that down.
+    assert _targets("see <https://example.com/x.md> and https://h.io/y.md") == set()
+    assert _targets("clone git@github.com:me/repo.git") == set()
+
+
+def test_reference_style_definitions_not_scanned():
+    # [id]: target definitions (and [text][id] usage) aren't inline links, and
+    # we deliberately don't validate them: extracting them risks matching
+    # dictionary-style prose, and neither corpus uses the syntax at all.
+    assert _targets("[docs]: ./missing.md\nuse [docs][docs] elsewhere") == set()
 
 
 # --- resolution: two bases (.mdc vs AGENTS) ---------------------------------
