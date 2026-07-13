@@ -94,6 +94,65 @@ def strip_code_blocks(content: str) -> str:
     return "\n".join(out)
 
 
+def strip_indented_code_blocks(content: str) -> str:
+    """Blank out indented code blocks (4 spaces / tab) so they aren't scanned.
+
+    Markdown's other code syntax: after a blank line, a run of lines indented
+    by four spaces (or a tab) is a code block, no fences needed. Shell examples
+    written that way carry the same @-heavy tokens as fenced ones (``dig
+    @100.100.100.100``), so they have to be skipped too.
+
+    The preceding-blank-line requirement mirrors CommonMark (an indented chunk
+    can't interrupt a paragraph) and keeps nested list items alive: a 4-space
+    sub-bullet directly under its parent line is prose and still gets scanned.
+    A 4-space continuation paragraph after a blank line inside a list does get
+    blanked -- markdown would call that one prose, we call it code -- but that
+    only costs a missed broken ref, never a false one.
+
+    Lines are replaced with empty ones, preserving line count like the other
+    strips. Blank lines don't end a block (a blank line between two indented
+    chunks is part of the code); the first non-blank, non-indented line does.
+    """
+    out: List[str] = []
+    in_block = False
+    prev_blank = True  # start of document counts as after a blank line
+    for line in content.split("\n"):
+        blank = line.strip() == ""
+        indented = line.startswith("    ") or line.startswith("\t")
+        if in_block:
+            if blank or indented:
+                out.append("")
+                continue
+            in_block = False
+        if indented and not blank and prev_blank:
+            in_block = True
+            out.append("")
+            prev_blank = False
+            continue
+        out.append(line)
+        prev_blank = blank
+    return "\n".join(out)
+
+
+def strip_html_comments(content: str) -> str:
+    """Blank out HTML comments (``<!-- ... -->``) so they aren't scanned.
+
+    A comment is where references go to die on purpose: commented-out sections
+    keep their old ``@path`` and ``[text](path)`` tokens around for later.
+    Flagging those as broken would force deleting the comment just to commit.
+
+    Comment characters become spaces (newlines kept) so offsets and line count
+    survive. An unclosed ``<!--`` is left alone rather than eating the rest of
+    the document.
+    """
+    return re.sub(
+        r"<!--.*?-->",
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+        content,
+        flags=re.DOTALL,
+    )
+
+
 def strip_inline_code(content: str) -> str:
     """Blank out inline code spans (`` `...` ``) so their contents aren't scanned.
 
@@ -103,12 +162,16 @@ def strip_inline_code(content: str) -> str:
     extractor. It isn't one, and reporting it as a broken reference sends people
     off to hunt for a file that was never meant to exist.
 
-    Replaces the span (backticks included) with spaces so offsets and line count
-    survive. Handles multi-backtick delimiters (``` ``code with ` inside`` ```).
+    Replaces the span (backticks included) with spaces, newlines kept, so
+    offsets and line count survive. Handles multi-backtick delimiters
+    (``` ``code with ` inside`` ```). A span may wrap across lines but never
+    across a blank line -- a blank line ends the paragraph, so markdown wouldn't
+    pair those backticks either, and letting it match would blank everything
+    between two stray backticks paragraphs apart, hiding real broken refs.
     """
     return re.sub(
-        r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)",
-        lambda m: " " * len(m.group(0)),
+        r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)",
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
         content,
         flags=re.DOTALL,
     )
@@ -144,13 +207,16 @@ def _looks_like_path(target: str) -> bool:
 def extract_references(content: str) -> List[Reference]:
     """Extract @-references and relative markdown links from content.
 
-    Fenced code blocks and inline code spans are skipped (both carry shell
-    examples and doc snippets with ``@`` and link-like tokens). Emails and
-    ``user@host`` strings are never matched as @-references. Bare prose words
-    that merely start with ``@`` (org tags, decorators) are not treated as
-    references.
+    Anything markdown doesn't treat as prose is skipped first: fenced code
+    blocks, indented code blocks, HTML comments, and inline code spans (all
+    carry shell examples and doc snippets with ``@`` and link-like tokens).
+    Emails and ``user@host`` strings are never matched as @-references. Bare
+    prose words that merely start with ``@`` (org tags, decorators) are not
+    treated as references.
     """
-    body = strip_inline_code(strip_code_blocks(content))
+    body = strip_inline_code(
+        strip_indented_code_blocks(strip_html_comments(strip_code_blocks(content)))
+    )
     refs: List[Reference] = []
     seen = set()
 
@@ -165,6 +231,15 @@ def extract_references(content: str) -> List[Reference]:
 
     for match in _MD_LINK.finditer(body):
         raw = match.group(1).strip()
+        # CommonMark link destinations are either wrapped in <...> (and may
+        # contain spaces) or a plain run with no whitespace, optionally
+        # followed by a quoted title. Unwrap the brackets / drop the title
+        # before the checks, so '[x](guide.md "the guide")' validates guide.md
+        # instead of a phantom target with the title glued on.
+        if raw.startswith("<") and ">" in raw:
+            raw = raw[1 : raw.index(">")]
+        else:
+            raw = raw.split(None, 1)[0] if raw else ""
         # Strip a fragment/query so "foo.md#section" resolves as "foo.md".
         raw = raw.split("#", 1)[0].split("?", 1)[0].strip()
         if not raw:
