@@ -95,6 +95,17 @@ trap 'rm -rf "$snapshot" "$genlog"' EXIT
 # Snapshot exactly what is being committed (the index), so unstaged WIP can
 # neither be clobbered nor leak into the check. The snapshot repo's index
 # records the pre-generation state; drift shows up as unstaged changes there.
+# git exports GIT_DIR/GIT_WORK_TREE (and friends) into hooks. Inherited by the
+# snapshot repo's commands, `git init` there tries to adopt THIS repo's work tree
+# — harmless when GIT_DIR is a plain relative ".git", fatal when it is a
+# submodule's absolute .git/modules/<name> with core.worktree set. Clear the
+# ambient git env for every snapshot-repo command.
+snap_git() {
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
+        git -C "$snapshot" "$@"
+}
+
 git checkout-index -a --prefix="$snapshot/"
 
 # checkout-index skips submodules (they're gitlinks, not files), but steering
@@ -116,8 +127,8 @@ while read -r mode sha _stage path; do
     git -C "$path" archive "$sha" | tar -x -C "$snapshot/$path"
 done < <(git ls-files -s)
 
-git -C "$snapshot" init -q
-git -C "$snapshot" add -A
+snap_git init -q
+snap_git add -A
 
 # --no-git: the snapshot has no git history, and it contains only staged files,
 # so a filesystem scan discovers exactly what git discovery would.
@@ -144,7 +155,7 @@ generated_pathspecs=(
 
 # In the snapshot repo every file is staged as 'A '; anything steering modified,
 # deleted, or newly created shows as 'AM', 'AD', or '??'.
-drift=$(git -C "$snapshot" -c core.fileMode=false status --porcelain \
+drift=$(snap_git -c core.fileMode=false status --porcelain \
     -- "${generated_pathspecs[@]}" | grep -v '^A ' || true)
 
 if [ -n "$drift" ]; then
