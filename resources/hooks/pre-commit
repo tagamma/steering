@@ -66,6 +66,15 @@ relevant_files=$(git diff --cached --name-only \
     | grep -Ev '(^|/)\.cursor/' || true)
 
 if [ -z "$relevant_files" ]; then
+    # Run by hand rather than by git (git always exports GIT_INDEX_FILE to a
+    # hook): say why nothing happened. A silent exit 0 here reads as "configs
+    # are in sync" when it only means "the index has no rule-source changes",
+    # and that misreading gets used as proof.
+    if [ -z "${GIT_INDEX_FILE:-}" ]; then
+        echo "steering pre-commit hook: no staged rule sources, so nothing was checked."
+        echo "This does NOT prove the generated configs are in sync -- stage the rule"
+        echo "sources you want checked, or regenerate and diff."
+    fi
     exit 0
 fi
 
@@ -95,14 +104,24 @@ trap 'rm -rf "$snapshot" "$genlog"' EXIT
 # Snapshot exactly what is being committed (the index), so unstaged WIP can
 # neither be clobbered nor leak into the check. The snapshot repo's index
 # records the pre-generation state; drift shows up as unstaged changes there.
-# git exports GIT_DIR/GIT_WORK_TREE (and friends) into hooks. Inherited by the
-# snapshot repo's commands, `git init` there tries to adopt THIS repo's work tree
-# — harmless when GIT_DIR is a plain relative ".git", fatal when it is a
-# submodule's absolute .git/modules/<name> with core.worktree set. Clear the
-# ambient git env for every snapshot-repo command.
+# git exports its own location into hooks, and those variables outrank `-C`, so
+# snapshot-repo commands land on THIS repo unless the environment is cleared:
+#
+#   * GIT_DIR is exported for every commit made in a linked worktree (and points
+#     at a submodule's .git/modules/<name> in a submodule). `git init` then
+#     re-initialises the real repository, marking it BARE when no GIT_WORK_TREE
+#     accompanies it — which breaks `status`/`diff`/`commit` in every checkout
+#     sharing that config, while `git log` keeps working and hides it.
+#   * GIT_INDEX_FILE is exported always. It is relative (".git/index") for a
+#     plain commit, which `-C` accidentally makes resolve to the snapshot's own
+#     index, but absolute for `commit -a` and `commit <path>` — where `add`
+#     would overwrite the very index git is about to commit from.
+#
+# Clear the ambient git env for every snapshot-repo command.
 snap_git() {
-    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
-        -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
+        -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+        -u GIT_NAMESPACE -u GIT_PREFIX -u GIT_CEILING_DIRECTORIES \
         git -C "$snapshot" "$@"
 }
 
@@ -128,6 +147,14 @@ while read -r mode sha _stage path; do
 done < <(git ls-files -s)
 
 snap_git init -q
+# Tripwire: if any git env still redirected `init` at the real repo, stop before
+# `add` writes to its index.
+if [ ! -d "$snapshot/.git" ]; then
+    echo "steering pre-commit hook: snapshot repo was not created at $snapshot." >&2
+    echo "Git environment leaked into the snapshot commands; aborting rather than" >&2
+    echo "touching the real repository. Please report this." >&2
+    exit 1
+fi
 snap_git add -A
 
 # --no-git: the snapshot has no git history, and it contains only staged files,
@@ -142,26 +169,27 @@ if ! "${steering[@]}" generate --input "$snapshot" --output "$snapshot" --no-git
 fi
 
 # Generated outputs at any depth. ':(glob)**/X' matches root-level X too (the
-# leading '**/' matches in all directories, including the repo root). Submodules
-# are excluded: whatever steering wrote inside one belongs to that repo's own
-# steering run, not to this commit.
+# leading '**/' matches in all directories, including the repo root).
 generated_pathspecs=(
     ':(glob)**/CLAUDE.md'
     ':(glob)**/.cursor/rules/**'
     '.cursor/skills'
     '.claude/skills'
-    "${submodule_excludes[@]}"
 )
 
 # In the snapshot repo every file is staged as 'A '; anything steering modified,
-# deleted, or newly created shows as 'AM', 'AD', or '??'.
+# deleted, or newly created shows as 'AM', 'AD', or '??'. Submodules are excluded
+# from the comparison: whatever steering wrote inside one belongs to that repo's
+# own steering run, not to this commit. The '+' expansion keeps an empty exclude
+# list from tripping `set -u` on bash 3.2, which is still what macOS ships.
 drift=$(snap_git -c core.fileMode=false status --porcelain \
-    -- "${generated_pathspecs[@]}" | grep -v '^A ' || true)
+    -- "${generated_pathspecs[@]}" \
+       ${submodule_excludes[@]+"${submodule_excludes[@]}"} | grep -v '^A ' || true)
 
 if [ -n "$drift" ]; then
     # Quote pathspecs so the printed command is copy-paste safe (unquoted **
     # would be glob-expanded by fish and by bash with globstar).
-    quoted_pathspecs=$(printf " '%s'" ':(glob)**/CLAUDE.md')
+    quoted_pathspecs=$(printf " '%s'" "${generated_pathspecs[@]}")
     echo ""
     echo "COMMIT BLOCKED: staged AI configs are out of sync with the staged rule sources."
     echo "Nothing was changed or staged for you. Pick one:"
