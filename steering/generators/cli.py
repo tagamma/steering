@@ -9,7 +9,7 @@ from rich.table import Table
 
 from .budget import compute_always_context
 from .claude_cleanup import remove_legacy_claude_files, scan_legacy_claude_files
-from .config import Config, load_config
+from .config import Config, load_config, normalize_vendors
 from .discovery import Discovery, DiscoveryError, resolve_discovery_mode
 from .generator import RuleLoader
 from .models import validate_ruleset
@@ -20,7 +20,7 @@ from .adapters import (
     ClaudeAdapter,
     ContinueDevAdapter,
     CopilotAdapter,
-    GeminiAdapter,
+    AntigravityAdapter,
     CodexAdapter,
 )
 
@@ -70,7 +70,7 @@ def cli():
 @click.option(
     "--vendor",
     type=click.Choice(
-        ["cursor", "claude", "continue", "copilot", "gemini", "codex", "all"],
+        ["cursor", "claude", "continue", "copilot", "antigravity", "gemini", "codex", "all"],
         case_sensitive=False,
     ),
     default="all",
@@ -142,7 +142,7 @@ def generate(input, output, vendor, dry_run, no_git, config_path):
 
     # Resolve the active vendors before validation: a few filesystem contracts
     # (notably Codex's skill-directory symlink rule) are vendor-specific.
-    vendors = config.default_vendors if vendor == "all" else [vendor]
+    vendors = config.default_vendors if vendor == "all" else normalize_vendors([vendor])
 
     # Validate rules
     console.print("[cyan]Validating rules...[/cyan]")
@@ -169,7 +169,7 @@ def generate(input, output, vendor, dry_run, no_git, config_path):
         "claude": ClaudeAdapter(),
         "continue": ContinueDevAdapter(),
         "copilot": CopilotAdapter(),
-        "gemini": GeminiAdapter(),
+        "antigravity": AntigravityAdapter(config.get_antigravity_rules_dir()),
         "codex": CodexAdapter(),
     }
 

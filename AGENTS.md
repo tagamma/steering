@@ -30,12 +30,18 @@ projects/steering/
    - **Leftovers**: Claude Code reads `AGENTS.md` only while no `CLAUDE.md` exists in or above the cwd, so the files steering used to generate now block it. `generate` warns; `steering cleanup-claude-md` (`claude_cleanup.py`) deletes them, gated on content: an exact `@AGENTS.md`/`@AGENTS.mdc` pointer with that sibling present, or the old root index header. Anything else is hand-written and reported, never deleted. Files inside git submodules are skipped (that repo's own run owns them). `generate` never deletes.
    - **Skills**: Claude Code does not read `.agents/skills/`; it needs the `skills.vendor_destinations.claude: .claude/skills` symlink.
 
-3. **Rule Discovery (`generator.py` + `discovery.py`)**:
+3. **Antigravity Adapter (`adapters/antigravity.py`)**:
+   - **Ground truth** (canary probes against agy 1.2.17 on 2026-10-03): agy loads `AGENTS.md`/`GEMINI.md` natively but only walking up from the cwd (reading a nested file does not attach its `AGENTS.md`), expands `@[label](path)` includes (relative to the including file) but not bare `@path`, and loads `.agents/rules/*.md` only with a `trigger:` frontmatter (`always_on`, `glob`, `model_decision`); `.mdc` and Cursor's `alwaysApply` are ignored. Glob triggers fire on file reads and match absolute paths, so they need a `**/` prefix. `tests/test_antigravity.py` pins the consequences.
+   - **Opt-in**: not in the default config's `default_vendors` (it writes files users must gitignore); `--vendor antigravity` or listing it enables it.
+   - **Output**: `.agents/rules/steering-*.md` (configurable via `vendor_files.antigravity`), each a single `@[label](path)` pointer: auto-rules and the transitive refs of the root `AGENTS.md`/auto-rules → `always_on`; contextual rules → `glob`/`model_decision`; nested `AGENTS.md` bodies and their refs → `glob` on `**/<dir>/**`. One file per target because agy caps each rule at 24 KB after expansion. Pointers use the unresolved path so per-machine symlinks (LOCALCONTEXT.md) resolve at load time.
+   - **Cleanup**: deletes only `steering-*.md` in the rules dir (hand-written rules can sit alongside) plus stale `GEMINI.md` files. `gemini` is a deprecated vendor alias (`config.VENDOR_ALIASES`).
+
+4. **Rule Discovery (`generator.py` + `discovery.py`)**:
    - Repo-wide scans (AGENTS file discovery, cleanup of generated files) are git-aware: inside a git work tree only git-tracked files are considered (`git ls-files --recurse-submodules`); outside one, a recursive walk requires explicit opt-in (`--no-git` or `discovery: filesystem`).
    - The filesystem walk never follows directory symlinks (recursive `glob` did, which let scans escape into Nix `result` symlinks and similar).
    - Respects `ignored_directories` from config to avoid scanning `node_modules` etc.
 
-4. **Skill links (`skills.py`)**:
+5. **Skill links (`skills.py`)**:
    - `.agents/skills/<name>` may be a symlink to a complete skill directory.
    - Never symlink only `.agents/skills/<name>/SKILL.md`: Codex ignores individual
      manifest symlinks. Keep the manifest regular inside the directory target.

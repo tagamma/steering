@@ -8,26 +8,29 @@ vendor_files:
   cursor: .cursor/rules                      # Directory for Cursor rule symlinks
   continue: .continue/rules                  # Directory for Continue.dev rule symlinks
   copilot: .github/copilot-instructions.md   # GitHub Copilot instructions
-  # claude and gemini write no file: Claude Code (v2.1.277+) and Gemini CLI
-  # read AGENTS.md natively (see default_vendors)
+  antigravity: .agents/rules                 # steering-*.md pointer rules for agy (gitignore them)
+  # claude writes no file: Claude Code (v2.1.277+) reads AGENTS.md natively
 
 # Default vendor to use if not specified (legacy, use default_vendors instead)
 default_vendor: all
 
 # List of vendors to enable when --vendor=all or no vendor specified
-# Available: cursor, claude, continue, copilot, gemini, codex
-# claude, codex and gemini require no generated files: all three read AGENTS.md
-# natively (Gemini once contextFileName is set to AGENTS.md in
-# .gemini/settings.json), and codex/gemini read .agents/skills/ too (Claude
-# Code gets skills via skills.vendor_destinations below). codex is a pure
-# no-op; gemini deletes stale GEMINI.md left over from when steering used to
-# generate them; claude only warns about leftover CLAUDE.md files, which
-# `steering cleanup-claude-md` removes after checking their content.
-# Including them here makes support explicit.
+# Available: cursor, claude, continue, copilot, antigravity, codex
+# ("gemini" is a deprecated alias for antigravity: Google replaced Gemini CLI
+# with Antigravity CLI, `agy`.)
+# claude and codex require no generated files: both read AGENTS.md natively,
+# and codex reads .agents/skills/ too (Claude Code gets skills via
+# skills.vendor_destinations below). codex is a pure no-op; claude only warns
+# about leftover CLAUDE.md files, which `steering cleanup-claude-md` removes
+# after checking their content. Including them here makes support explicit.
+#
+# antigravity is opt-in: it writes .agents/rules/steering-*.md pointer rules
+# (gitignore them) because agy only expands @[label](path) includes and only
+# loads nested AGENTS.md from its cwd up. It also deletes stale GEMINI.md files.
+# Add it below if you use agy.
 default_vendors:
   - cursor
   - claude
-  - gemini
   - codex
 
 # Glob patterns for discovering rules
@@ -90,6 +93,7 @@ validate:
 # Vendor-specific settings
 # Cursor: rule symlinks, ref-*.mdc (@refs), nested AGENTS.md → glob-scoped wrappers.
 # Claude: nothing to configure; it reads AGENTS.md natively.
+# Antigravity: @[label](path) pointer rules in .agents/rules/steering-*.md.
 continue:
   # Symlink rules directly like Cursor
   use_symlinks: true
@@ -107,7 +111,7 @@ copilot:
 # Skills configuration.
 # Skills always live at .agents/skills/<name> (the canonical "open agent
 # skills standard" location). The source path is not configurable -- making
-# it canonical means tools like Codex and Gemini CLI find skills there
+# it canonical means tools like Codex and Antigravity CLI find skills there
 # without a vendor-specific destination. Each child may itself be a symlink to
 # a complete skill directory; keep SKILL.md regular inside that target. For
 # tools that don't read the canonical path, list a destination below
@@ -127,6 +131,5 @@ skills:
     # Codex reads .agents/skills/ natively -- no destination needed.
     # https://developers.openai.com/codex/skills
     #
-    # Gemini CLI also reads .agents/skills/ natively. Uncomment if you also
-    # want symlinks under .gemini/skills/.
-    # gemini: ".gemini/skills"
+    # Antigravity CLI (agy) also reads .agents/skills/ natively (directory
+    # symlinks included) -- no destination needed.

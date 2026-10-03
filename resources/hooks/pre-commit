@@ -177,6 +177,7 @@ generated_pathspecs=(
     ':(glob)**/.cursor/rules/**'
     '.cursor/skills'
     '.claude/skills'
+    ':(glob).agents/rules/steering-*.md'
 )
 
 # In the snapshot repo every file is staged as 'A '; anything steering modified,

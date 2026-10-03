@@ -6,7 +6,27 @@ import yaml
 from .discovery import VALID_DISCOVERY_SETTINGS
 
 
-VALID_VENDORS = ["cursor", "claude", "continue", "copilot", "gemini", "codex"]
+VALID_VENDORS = ["cursor", "claude", "continue", "copilot", "antigravity", "codex"]
+
+# Old vendor names still accepted (with a warning) and what they mean now.
+# Google replaced Gemini CLI with Antigravity CLI (`agy`) in 2026-05.
+VENDOR_ALIASES = {"gemini": "antigravity"}
+
+
+def normalize_vendors(vendors: List[str]) -> List[str]:
+    """Map deprecated vendor names to current ones, keeping order and dropping dupes."""
+    out: List[str] = []
+    for vendor in vendors:
+        if vendor in VENDOR_ALIASES:
+            new = VENDOR_ALIASES[vendor]
+            print(
+                f"WARN: vendor '{vendor}' is deprecated, use '{new}' instead.",
+                file=sys.stderr,
+            )
+            vendor = new
+        if vendor not in out:
+            out.append(vendor)
+    return out
 
 
 class Config:
@@ -27,6 +47,8 @@ class Config:
         self.default_vendors = self._data.get(
             "default_vendors", ["cursor", "claude", "continue", "copilot"]
         )
+        if isinstance(self.default_vendors, list):
+            self.default_vendors = normalize_vendors(self.default_vendors)
         self.auto_rules_glob = self._data.get(
             "auto_rules_glob", "rules/auto-rules/**/*.mdc"
         )
@@ -46,12 +68,17 @@ class Config:
         self.discovery: str = self._data.get("discovery", "auto")
 
         # Skill source path is fixed to the canonical open-agent-skills location
-        # so tools like Codex and Gemini CLI find skills without any symlinks.
+        # so tools like Codex and Antigravity CLI find skills without any symlinks.
         skills_data = self._data.get("skills", {})
         self.skills_shared_path: str = ".agents/skills"
         self.skills_vendor_destinations: Dict[str, str] = skills_data.get(
             "vendor_destinations", {}
         )
+        if isinstance(self.skills_vendor_destinations, dict):
+            self.skills_vendor_destinations = {
+                VENDOR_ALIASES.get(k, k): v
+                for k, v in self.skills_vendor_destinations.items()
+            }
         if "shared_path" in skills_data:
             print(
                 "WARN: 'skills.shared_path' is no longer configurable and will be "
@@ -131,6 +158,9 @@ class Config:
 
     def get_cursor_output_dir(self) -> str:
         return self.vendor_files.get("cursor", ".cursor/rules")
+
+    def get_antigravity_rules_dir(self) -> str:
+        return self.vendor_files.get("antigravity", ".agents/rules")
 
 
 def load_config(config_path: Path | None = None) -> Config:
