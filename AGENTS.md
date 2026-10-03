@@ -20,13 +20,15 @@ projects/steering/
 ### Critical Implementation Logic
 
 1. **Cursor Adapter (`adapters/cursor.py`)**:
+   - **Ground truth** (canary probes against Cursor CLI 2026.09.26 on 2026-10-03): Cursor loads root AND nested AGENTS.md natively (nested attach when it works on a file in that directory), but expands `@` refs nowhere -- not in AGENTS.md, not in `.cursor/rules/*.mdc` either, whatever the docs say. `tests/test_cursor.py` pins the consequences.
    - **Symlinks**: Auto/contextual rules symlinked to `.cursor/rules/`.
-   - **Root AGENTS.md**: `@` refs embedded as alwaysApply `ref-*.mdc` (Cursor doesn't expand them).
-   - **Nested AGENTS.md**: Glob-scoped wrapper `.mdc` in `.cursor/rules/` (Cursor doesn't load nested files).
+   - **Root AGENTS.md**: `@` refs embedded as alwaysApply `ref-*.mdc`, skipping refs to the auto/contextual rules already symlinked.
+   - **Nested AGENTS.md**: glob-scoped `agents-*.mdc` holding ONLY the expanded `@` refs (the body would load twice). Nothing is written when there are no refs.
 
 2. **Claude Adapter (`adapters/claude.py`)**:
-   - **Reference**: Generates `CLAUDE.md` using `@` references.
-   - **Locality**: Creates adjacent `CLAUDE.md` files next to `AGENTS.md` files to support local context loading.
+   - **No output**: Claude Code (v2.1.277+) reads `AGENTS.md` natively, root and nested, and expands `@path` imports in it. Auto-rules reach it only through `@` references in the root `AGENTS.md`, so `validate_auto_rule_wiring` (`references.py`) fails validation when one isn't referenced.
+   - **Leftovers**: Claude Code reads `AGENTS.md` only while no `CLAUDE.md` exists in or above the cwd, so the files steering used to generate now block it. `generate` warns; `steering cleanup-claude-md` (`claude_cleanup.py`) deletes them, gated on content: an exact `@AGENTS.md`/`@AGENTS.mdc` pointer with that sibling present, or the old root index header. Anything else is hand-written and reported, never deleted. Files inside git submodules are skipped (that repo's own run owns them). `generate` never deletes.
+   - **Skills**: Claude Code does not read `.agents/skills/`; it needs the `skills.vendor_destinations.claude: .claude/skills` symlink.
 
 3. **Rule Discovery (`generator.py` + `discovery.py`)**:
    - Repo-wide scans (AGENTS file discovery, cleanup of generated files) are git-aware: inside a git work tree only git-tracked files are considered (`git ls-files --recurse-submodules`); outside one, a recursive walk requires explicit opt-in (`--no-git` or `discovery: filesystem`).

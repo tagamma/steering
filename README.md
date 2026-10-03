@@ -12,7 +12,7 @@ The landscape of AI coding assistants evolves so rapidly that it doesn't make se
 
 Furthermore, it often makes sense to have multiple tools configured at once. For example, `claude-code` and `Cursor` are fundamentally different tools that excel at different jobs. With `steering`, one can easily maintain consistent behavior across both lowering cognitive load due to having to manually manage which tools knows what rules and context.
 
-Historically, `steering` was more critical before `AGENTS.md` started becoming a standard supported by many AI coding tools. However, it remains relevant for various other use cases, (for example, to force-embed `@` references for tools that don't support them natively or to generate configurations for newer tools like `GEMINI.md` when comparing it to claude-code).
+Historically, `steering` was more critical before `AGENTS.md` started becoming a standard supported by many AI coding tools (Claude Code reads it natively since v2.1.277, so steering no longer generates `CLAUDE.md` at all). It remains relevant for the gaps that are left: force-embedding `@` references for tools that don't expand them, symlinking skills into vendor-specific locations, and validating that the whole context tree is consistent (every reference resolves, every auto-rule is wired up, the always-on context stays within budget).
 
 ## Core Concepts
 
@@ -43,8 +43,8 @@ Steering encourages a consistent organization of project files to help both huma
 
 Steering generates native configurations for supported tools, for example:
 
-- **Cursor**: Creates symlinks in `.cursor/rules/` (preserving frontmatter).
-- **Claude**: Generates `CLAUDE.md` with `@` references.
+- **Cursor**: Creates symlinks in `.cursor/rules/` (preserving frontmatter), and embeds the files that `AGENTS.md` files `@`-reference as `.mdc` rules (alwaysApply for the root `AGENTS.md`, glob-scoped to the directory for nested ones). Cursor loads root and nested `AGENTS.md` natively but doesn't expand `@` refs anywhere (verified against the CLI, 2026-10), so only the referenced files are embedded, never the `AGENTS.md` bodies.
+- **Claude**: No generated files. Claude Code v2.1.277+ reads `AGENTS.md` natively (the root one at session start, with its `@path` imports expanded; nested ones as it works in their directories) -- but only while no `CLAUDE.md` exists in or above the working directory. So the auto-rules reach it through `@` references in the root `AGENTS.md` (`steering validate` fails if one is missing), and skills through the `.claude/skills` symlink destination (it does not read `.agents/skills/`). The `CLAUDE.md` files earlier versions generated now block all of that; `generate` warns about them and `steering cleanup-claude-md` removes them after checking that each one really is steering's output (a bare `@AGENTS.md` pointer next to an `AGENTS.md`, or the old root index). Hand-written `CLAUDE.md` files are reported and left alone.
 - **Gemini**: Cleanup-only. Gemini CLI reads `AGENTS.md` natively (set `contextFileName` to `AGENTS.md` in `.gemini/settings.json`) and `.agents/skills/` natively, so no `GEMINI.md` is generated; the adapter only deletes stale `GEMINI.md` files left over from when steering used to generate them.
 - **Codex**: No generated files. Codex reads `AGENTS.md` and `.agents/skills/` natively, both of which steering already manages as source-of-truth. Steering still validates Codex's filesystem contract: a complete skill directory may be symlinked, but an individual `SKILL.md` may not.
 
@@ -127,11 +127,14 @@ Currently, the expected workflow is:
 # (Assuming you are in the directory containing 'rules/' and 'resources/default-config.yaml')
 steering generate --input . --output . --vendor cursor
 
-# Generate configurations for Claude
-steering generate --input . --output . --vendor claude
-
 # Generate for all configured providers
 steering generate --input . --output .
+
+# Remove the CLAUDE.md files older steering versions generated (Claude Code
+# reads AGENTS.md natively now, but only while no CLAUDE.md is in the way).
+# Content-checked: hand-written CLAUDE.md files are listed, never deleted.
+steering cleanup-claude-md --input . --output . --dry-run
+steering cleanup-claude-md --input . --output .
 
 # Generate for a directory that is not a git repository (e.g. a knowledge base).
 # Inside a git work tree, discovery only considers git-tracked files; outside
@@ -153,7 +156,6 @@ version: 1.0
 defaults:
   vendor_files:
     - cursor: ".cursor/rules"
-    - claude: "CLAUDE.md"
   local_rules_glob: "AGENTS.{md,mdc}"
   auto_rules_glob: "rules/auto-rules/*.mdc"
   contextual_rules_glob: "rules/contextual-rules/*.mdc"

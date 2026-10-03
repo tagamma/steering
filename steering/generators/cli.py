@@ -8,11 +8,12 @@ from rich.console import Console
 from rich.table import Table
 
 from .budget import compute_always_context
-from .config import load_config
+from .claude_cleanup import remove_legacy_claude_files, scan_legacy_claude_files
+from .config import Config, load_config
 from .discovery import Discovery, DiscoveryError, resolve_discovery_mode
 from .generator import RuleLoader
 from .models import validate_ruleset
-from .references import validate_references
+from .references import validate_auto_rule_wiring, validate_references
 from .skills import SkillConflictError, sync_skills, validate_skill_layouts
 from .adapters import (
     CursorAdapter,
@@ -25,6 +26,24 @@ from .adapters import (
 
 
 console = Console()
+
+
+def _load_config_or_exit(input_dir: Path, config_path: str | None) -> Config:
+    """Load the config every command shares, exiting with a message on failure.
+
+    Explicit --config-path wins; otherwise {input}/resources/default-config.yaml,
+    falling back to the config packaged with steering.
+    """
+    try:
+        if config_path:
+            return load_config(Path(config_path))
+        try:
+            return load_config(input_dir / "resources" / "default-config.yaml")
+        except FileNotFoundError:
+            return load_config()
+    except Exception as e:
+        console.print(f"[red]ERROR: Failed to load config:[/red] {e}")
+        sys.exit(1)
 
 
 @click.group()
@@ -83,19 +102,7 @@ def generate(input, output, vendor, dry_run, no_git, config_path):
     input_dir = Path(input)
     output_dir = Path(output)
 
-    # Load configuration
-    try:
-        if config_path:
-            config = load_config(Path(config_path))
-        else:
-            # Try input dir resources first, then fall back to package default
-            try:
-                config = load_config(input_dir / "resources" / "default-config.yaml")
-            except FileNotFoundError:
-                config = load_config()
-    except Exception as e:
-        console.print(f"[red]ERROR: Failed to load config:[/red] {e}")
-        sys.exit(1)
+    config = _load_config_or_exit(input_dir, config_path)
 
     # Resolve how repo-wide scans discover files (git-tracked vs filesystem)
     try:
@@ -255,9 +262,10 @@ def generate(input, output, vendor, dry_run, no_git, config_path):
     type=float,
     default=None,
     help=(
-        "Fail validation if the always-on context (root CLAUDE.md plus every "
-        "file it @-references transitively) exceeds this many KB. Overrides "
-        "'validate.max_always_context_kb' from the config."
+        "Fail validation if the always-on context (root AGENTS.md and the "
+        "auto-rules, plus every file they @-reference transitively) exceeds "
+        "this many KB. Overrides 'validate.max_always_context_kb' from the "
+        "config."
     ),
 )
 def validate(input, config_path, no_git, max_context_kb):
@@ -267,25 +275,15 @@ def validate(input, config_path, no_git, max_context_kb):
     @-reference and relative markdown link in the rules, AGENTS files, and
     skills actually resolves to a file on disk -- catching stale references to
     deleted files that would otherwise be shipped to agents as broken context.
-    It also computes the always-on context budget and can fail if it grows past
-    a configured ceiling.
+    It checks that the root AGENTS.md @-references every auto-rule (that is
+    the only way they reach Claude Code now). It also computes the always-on
+    context budget and can fail if it grows past a configured ceiling.
     """
     console.print("[yellow]Validating rules...[/yellow]\n")
 
     input_dir = Path(input)
 
-    # Load configuration
-    try:
-        if config_path:
-            config = load_config(Path(config_path))
-        else:
-            try:
-                config = load_config(input_dir / "resources" / "default-config.yaml")
-            except FileNotFoundError:
-                config = load_config()
-    except Exception as e:
-        console.print(f"[red]ERROR: Failed to load config:[/red] {e}")
-        sys.exit(1)
+    config = _load_config_or_exit(input_dir, config_path)
 
     # The input dir doubles as the repository (generation) root for validation,
     # so AGENTS-file discovery and reference resolution share it.
@@ -327,13 +325,16 @@ def validate(input, config_path, no_git, max_context_kb):
     ref_errors = validate_references(ruleset, input_dir, input_dir)
     errors.extend(ref_errors)
 
+    # Every auto-rule must be reachable from the root AGENTS.md.
+    errors.extend(validate_auto_rule_wiring(ruleset, input_dir))
+
     # Always-on context budget.
     budget = compute_always_context(ruleset, input_dir, input_dir)
     ceiling = max_context_kb if max_context_kb is not None else config.max_always_context_kb
     console.print(
         f"[cyan]Always-on context:[/cyan] {budget.total_kb:.1f} KB "
-        f"across {len(budget.files) + 1} file(s) "
-        f"(root CLAUDE.md + {len(budget.files)} @-referenced)"
+        f"across {len(budget.files)} file(s) "
+        "(root AGENTS.md, auto-rules, and what they @-reference)"
     )
     if ceiling is not None:
         if budget.total_kb > ceiling:
@@ -379,18 +380,7 @@ def list_rules(input, config_path):
 
     input_dir = Path(input)
 
-    # Load configuration
-    try:
-        if config_path:
-            config = load_config(Path(config_path))
-        else:
-            try:
-                config = load_config(input_dir / "resources" / "default-config.yaml")
-            except FileNotFoundError:
-                config = load_config()
-    except Exception as e:
-        console.print(f"[red]ERROR: Failed to load config:[/red] {e}")
-        sys.exit(1)
+    config = _load_config_or_exit(input_dir, config_path)
 
     # Load rules and skills
     try:
@@ -448,6 +438,115 @@ def list_rules(input, config_path):
     # Summary
     console.print(
         f"[dim]Total: {len(auto_rules)} auto-rules, {len(contextual_rules)} contextual rules, {len(skills)} skills[/dim]"
+    )
+
+
+@cli.command("cleanup-claude-md")
+@click.option(
+    "--input",
+    required=True,
+    help="Input directory containing rules/ subdirectory",
+)
+@click.option(
+    "--output",
+    default=".",
+    help="Repository root to scan for CLAUDE.md files (default: current directory)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Report what would be removed without deleting anything",
+)
+@click.option(
+    "--no-git",
+    is_flag=True,
+    help=(
+        "Scan the filesystem recursively instead of limiting the scan to "
+        "git-tracked files. Required when the output directory is not a git "
+        "work tree."
+    ),
+)
+@click.option(
+    "--config-path",
+    help="Path to config.yaml (default: {input}/resources/default-config.yaml)",
+)
+def cleanup_claude_md(input, output, dry_run, no_git, config_path):
+    """Remove the CLAUDE.md files earlier steering versions generated.
+
+    Claude Code reads AGENTS.md natively since v2.1.277, but only while no
+    CLAUDE.md exists in or above the working directory -- so the root index
+    and the per-directory `@AGENTS.md` pointers steering used to write now
+    block exactly what they were meant to provide. `generate` no longer
+    writes them, and never deletes them either; this is the deliberate step.
+
+    Each CLAUDE.md is checked before deletion: it must be exactly an
+    `@AGENTS.md` / `@AGENTS.mdc` pointer with that sibling present, or start
+    with the header the old root index generator wrote. Anything else is
+    hand-written and is reported, not touched. Files inside git submodules are
+    skipped too; run this command in each submodule with its own config.
+    """
+    console.print("[blue]Steering CLAUDE.md cleanup[/blue]")
+    console.print("[dim]" + "=" * 50 + "[/dim]\n")
+
+    input_dir = Path(input)
+    output_dir = Path(output)
+
+    config = _load_config_or_exit(input_dir, config_path)
+
+    try:
+        discovery_mode = resolve_discovery_mode(config.discovery, no_git, output_dir)
+    except DiscoveryError as e:
+        console.print(f"[red]ERROR:[/red] {e}")
+        sys.exit(1)
+    discovery = Discovery(output_dir, discovery_mode, config.ignored_directories)
+
+    scan = scan_legacy_claude_files(discovery)
+    removed = remove_legacy_claude_files(scan, dry_run=dry_run)
+
+    def rel(path: Path) -> str:
+        try:
+            return str(path.relative_to(output_dir))
+        except ValueError:
+            return str(path)
+
+    if scan.removable:
+        action = "would remove" if dry_run else "removed"
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("File", style="white")
+        table.add_column("Kind", style="yellow")
+        table.add_column("Action", style="green" if not dry_run else "yellow")
+        removed_set = set(removed)
+        for item in scan.removable:
+            table.add_row(
+                rel(item.path),
+                item.kind,
+                action if item.path in removed_set else "FAILED",
+            )
+        console.print(table)
+        console.print()
+    else:
+        console.print("[dim]No steering-generated CLAUDE.md files found.[/dim]\n")
+
+    if scan.foreign:
+        console.print(
+            "[yellow]Left alone[/yellow] (content is not something steering wrote):"
+        )
+        for path in scan.foreign:
+            console.print(f"  - {rel(path)}")
+        console.print()
+
+    if scan.in_submodules:
+        console.print(
+            "[yellow]Inside git submodules[/yellow] (run this command there instead):"
+        )
+        for path in scan.in_submodules:
+            console.print(f"  - {rel(path)}")
+        console.print()
+
+    verb = "Would remove" if dry_run else "Removed"
+    console.print(
+        f"[green]{verb} {len(removed)} file(s)[/green]; "
+        f"{len(scan.foreign)} left alone, {len(scan.in_submodules)} in submodules."
     )
 
 

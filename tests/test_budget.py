@@ -21,19 +21,20 @@ def _auto_rule(path: Path, content: str) -> Rule:
     )
 
 
-def test_budget_counts_root_claude_md_and_auto_rules(tmp_path: Path):
+def test_budget_counts_root_agents_md_and_auto_rules(tmp_path: Path):
     root = tmp_path
     rule_path = root / ".agents" / "auto-rules" / "a.mdc"
     _write(rule_path, "auto rule body")
     rule = _auto_rule(rule_path, "auto rule body")
+    _write(root / "AGENTS.md", "@.agents/auto-rules/a.mdc")
 
     ruleset = RuleSet(auto=[rule], contextual=[], agents=[], skills=[])
     result = compute_always_context(ruleset, root, root)
 
-    # Root CLAUDE.md is always counted; the one auto-rule is counted once.
-    assert result.root_claude_md_bytes > 0
-    assert rule_path in result.files
-    assert result.total_bytes == result.root_claude_md_bytes + len(
+    # Root AGENTS.md and the auto-rule are each counted exactly once, even
+    # though the AGENTS.md also @-references the rule.
+    assert [p.name for p in result.files] == ["AGENTS.md", "a.mdc"]
+    assert result.total_bytes == len(b"@.agents/auto-rules/a.mdc") + len(
         b"auto rule body"
     )
 
@@ -68,8 +69,8 @@ def test_budget_does_not_double_count_cycles(tmp_path: Path):
 
 def test_budget_ignores_contextual_and_nested_agents(tmp_path: Path):
     root = tmp_path
-    # Contextual rules and nested AGENTS files are only listed by path in the
-    # root CLAUDE.md, not @-embedded, so they don't add to the always-on size.
+    # Contextual rules and nested AGENTS files load on demand, not at session
+    # start, so they don't add to the always-on size.
     ctx_path = root / ".agents" / "contextual-rules" / "c.mdc"
     _write(ctx_path, "@SHOULD-NOT-BE-COUNTED.md")
     ctx = Rule(

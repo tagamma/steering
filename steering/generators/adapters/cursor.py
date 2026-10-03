@@ -90,13 +90,25 @@ class CursorAdapter:
             )
             files.update(ref_files)
 
-        # Root AGENTS.md: loaded natively but @refs not expanded → alwaysApply ref-*.mdc.
-        # Nested AGENTS.md: not loaded → glob-scoped wrapper .mdc in .cursor/rules/.
+        # Cursor loads root AND nested AGENTS.md natively (nested ones attach when
+        # it works on a file in that directory, or from the start when the cwd is
+        # inside it) but expands @refs nowhere -- not in AGENTS.md, not even in
+        # .cursor/rules/*.mdc, whatever the docs say. Verified 2026-10-03 with
+        # canary tokens against Cursor CLI 2026.09.26. So:
+        #   root AGENTS.md @refs   → alwaysApply ref-*.mdc (skipping auto/contextual
+        #                            rules, which are already symlinked above)
+        #   nested AGENTS.md @refs → glob-scoped agents-*.mdc holding ONLY the
+        #                            expanded refs; the body itself would load twice
+        already_linked = {
+            rule.path.resolve() for rule in ruleset.auto + ruleset.contextual
+        }
         files.update(
-            self._process_agents_references(ruleset.agents, output_dir, dry_run)
+            self._process_agents_references(
+                ruleset.agents, output_dir, dry_run, skip=already_linked
+            )
         )
         files.update(
-            self._process_nested_agents_wrappers(
+            self._process_nested_agents_references(
                 ruleset.agents, output_dir, cursor_rules_dir, dry_run
             )
         )
@@ -265,9 +277,16 @@ class CursorAdapter:
         agents_rules: List,
         output_dir: Path,
         dry_run: bool,
+        skip: "set[Path] | None" = None,
     ) -> Dict[str, str]:
-        """Embed root AGENTS.md @refs as alwaysApply ref-*.mdc."""
+        """Embed root AGENTS.md @refs as alwaysApply ref-*.mdc.
+
+        ``skip`` holds resolved paths that already reach Cursor another way
+        (the symlinked auto/contextual rules); references to them are not
+        embedded again.
+        """
         files: Dict[str, str] = {}
+        skip = skip or set()
 
         for rule in agents_rules:
             if rule.path.parent.resolve() != output_dir.resolve():
@@ -290,6 +309,9 @@ class CursorAdapter:
 
                 if not ref_path.exists():
                     print(f"WARN: Referenced file {ref} not found in {agents_dir}")
+                    continue
+
+                if ref_path.resolve() in skip:
                     continue
 
                 try:
@@ -333,14 +355,22 @@ class CursorAdapter:
 
         return files
 
-    def _process_nested_agents_wrappers(
+    def _process_nested_agents_references(
         self,
         agents_rules: List,
         output_dir: Path,
         cursor_rules_dir: Path,
         dry_run: bool,
     ) -> Dict[str, str]:
-        """One glob-scoped wrapper .mdc per nested AGENTS.md (body + expanded @refs)."""
+        """One glob-scoped .mdc per nested AGENTS.md holding its expanded @refs.
+
+        Cursor attaches the nested AGENTS.md itself when it works in that
+        directory, so the body is deliberately NOT repeated here (it used to
+        be, back when Cursor didn't load nested files; that now costs the
+        same context twice). Only the @-referenced files, which Cursor never
+        expands, are embedded, scoped to the same directory. Nothing is written
+        for an AGENTS.md without resolvable @refs.
+        """
         files: Dict[str, str] = {}
         out_resolved = output_dir.resolve()
 
@@ -354,23 +384,24 @@ class CursorAdapter:
             except ValueError:
                 continue  # outside the output tree
 
-            sanitized = reldir.replace("/", "-").replace(".", "-")
-            wrapper_path = cursor_rules_dir / f"agents-{sanitized}.mdc"
-
             seen: set[Path] = {rule.path.resolve()}
             expansion = self._expand_references(rule.content, agents_dir, seen)
+            if not expansion:
+                continue
+
+            sanitized = reldir.replace("/", "-").replace(".", "-")
+            wrapper_path = cursor_rules_dir / f"agents-{sanitized}.mdc"
 
             content = "\n".join(
                 [
                     "---",
-                    f"description: {reldir} (nested AGENTS.md)",
+                    f"description: files @-referenced by {reldir}/AGENTS.md",
                     f"globs: {reldir}/**",
                     "alwaysApply: false",
                     "---",
                     "",
-                    "<!-- steering: nested AGENTS.md wrapper. Edit source AGENTS.md, not this file. -->",
-                    "",
-                    rule.content,
+                    f"<!-- steering: @refs of {reldir}/{rule.path.name}, which Cursor loads natively "
+                    "but doesn't expand. Edit the sources, not this file. -->",
                     expansion,
                 ]
             )

@@ -169,9 +169,11 @@ if ! "${steering[@]}" generate --input "$snapshot" --output "$snapshot" --no-git
 fi
 
 # Generated outputs at any depth. ':(glob)**/X' matches root-level X too (the
-# leading '**/' matches in all directories, including the repo root).
+# leading '**/' matches in all directories, including the repo root). CLAUDE.md
+# is deliberately not in here anymore: steering stopped generating it (Claude
+# Code reads AGENTS.md natively), so a tracked one is somebody's hand-written
+# file and none of this hook's business.
 generated_pathspecs=(
-    ':(glob)**/CLAUDE.md'
     ':(glob)**/.cursor/rules/**'
     '.cursor/skills'
     '.claude/skills'

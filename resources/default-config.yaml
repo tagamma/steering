@@ -6,20 +6,23 @@ version: 1.0
 # Vendor-specific output files/directories
 vendor_files:
   cursor: .cursor/rules                      # Directory for Cursor rule symlinks
-  claude: CLAUDE.md                          # File for Claude @ references
   continue: .continue/rules                  # Directory for Continue.dev rule symlinks
   copilot: .github/copilot-instructions.md   # GitHub Copilot instructions
-  # gemini writes no file: Gemini CLI reads AGENTS.md natively (see default_vendors)
+  # claude and gemini write no file: Claude Code (v2.1.277+) and Gemini CLI
+  # read AGENTS.md natively (see default_vendors)
 
 # Default vendor to use if not specified (legacy, use default_vendors instead)
 default_vendor: all
 
 # List of vendors to enable when --vendor=all or no vendor specified
 # Available: cursor, claude, continue, copilot, gemini, codex
-# codex and gemini require no generated files: both read AGENTS.md and
-# .agents/skills/ natively (Gemini once contextFileName is set to AGENTS.md in
-# .gemini/settings.json). codex is a pure no-op; gemini is cleanup-only --
-# it deletes stale GEMINI.md left over from when steering used to generate them.
+# claude, codex and gemini require no generated files: all three read AGENTS.md
+# natively (Gemini once contextFileName is set to AGENTS.md in
+# .gemini/settings.json), and codex/gemini read .agents/skills/ too (Claude
+# Code gets skills via skills.vendor_destinations below). codex is a pure
+# no-op; gemini deletes stale GEMINI.md left over from when steering used to
+# generate them; claude only warns about leftover CLAUDE.md files, which
+# `steering cleanup-claude-md` removes after checking their content.
 # Including them here makes support explicit.
 default_vendors:
   - cursor
@@ -73,22 +76,20 @@ ignored_directories:
 
 # Validation settings (used by `steering validate`).
 validate:
-  # Ceiling, in KB, for the always-on context: the generated root CLAUDE.md
-  # plus every file it @-references transitively (auto-rules, root AGENTS.md,
-  # and whatever those reference in turn). This is what every agent ingests no
-  # matter what it's working on, so it's worth keeping bounded. validate always
-  # prints the measured size; set a number here (or pass --max-context-kb) to
-  # fail when it's exceeded. Leave unset for report-only.
+  # Ceiling, in KB, for the always-on context: the root AGENTS.md and the
+  # auto-rules, plus every file they @-reference transitively. This is what
+  # every agent ingests no matter what it's working on, so it's worth keeping
+  # bounded. validate always prints the measured size; set a number here (or
+  # pass --max-context-kb) to fail when it's exceeded. Leave unset for
+  # report-only.
   # max_always_context_kb: 64
+  #
+  # validate also fails when the root AGENTS.md doesn't @-reference every
+  # auto-rule: that import is the only way an auto-rule reaches Claude Code.
 
 # Vendor-specific settings
 # Cursor: rule symlinks, ref-*.mdc (@refs), nested AGENTS.md → glob-scoped wrappers.
-claude:
-  # Include auto-rules directly via @ references
-  auto_include: true
-  # List contextual rules with descriptions for on-demand loading
-  contextual_on_demand: true
-
+# Claude: nothing to configure; it reads AGENTS.md natively.
 continue:
   # Symlink rules directly like Cursor
   use_symlinks: true

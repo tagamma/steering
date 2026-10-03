@@ -97,6 +97,7 @@ class Discovery:
         self.ignored_directories = ignored_directories
         self._tracked_cache: Optional[List[str]] = None
         self._untracked_cache: Optional[List[str]] = None
+        self._submodule_cache: Optional[List[str]] = None
 
     @classmethod
     def fallback(cls, root: Path) -> "Discovery":
@@ -254,6 +255,27 @@ class Discovery:
                 "--others", "--exclude-standard"
             )
         return self._untracked_cache
+
+    def submodule_paths(self) -> List[str]:
+        """Root-relative POSIX paths of git submodules; [] in filesystem mode.
+
+        Tracked-file discovery recurses into submodules, so anything found
+        under one of these paths belongs to another repository -- and to that
+        repository's own steering run. Only direct submodules are listed
+        (``ls-files --stage`` shows gitlinks one level deep), which is enough:
+        a nested submodule still sits under its parent's path.
+        """
+        if self.mode != "git":
+            return []
+        if self._submodule_cache is None:
+            paths: List[str] = []
+            for entry in self._git_ls_files("--stage"):
+                # "<mode> <sha> <stage>\t<path>"; 160000 is a gitlink.
+                meta, _, path = entry.partition("\t")
+                if meta.startswith("160000 ") and path:
+                    paths.append(path)
+            self._submodule_cache = paths
+        return self._submodule_cache
 
     def _git_ls_files(self, *args: str) -> List[str]:
         result = subprocess.run(

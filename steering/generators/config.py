@@ -65,7 +65,7 @@ class Config:
         self.claude_settings = self._data.get("claude", {})
 
         # Validation settings. max_always_context_kb caps the always-loaded
-        # context size (root CLAUDE.md + transitively @-referenced files);
+        # context size (root AGENTS.md + auto-rules + what they @-reference);
         # None means no ceiling (size is reported but never fails validate).
         # `or {}` (not a .get default): a present-but-empty `validate:` section
         # parses to None, which would break .get() below.
@@ -82,10 +82,10 @@ class Config:
         """
         issues = []
 
+        # Only cursor still writes to a configurable location; claude used to
+        # (CLAUDE.md) but generates nothing since Claude Code reads AGENTS.md.
         if "cursor" not in self.vendor_files:
             issues.append("Missing 'cursor' in vendor_files configuration")
-        if "claude" not in self.vendor_files:
-            issues.append("Missing 'claude' in vendor_files configuration")
 
         if not isinstance(self.ignored_directories, list):
             issues.append("'ignored_directories' must be a list")
@@ -131,9 +131,6 @@ class Config:
 
     def get_cursor_output_dir(self) -> str:
         return self.vendor_files.get("cursor", ".cursor/rules")
-
-    def get_claude_output_file(self) -> str:
-        return self.vendor_files.get("claude", "CLAUDE.md")
 
 
 def load_config(config_path: Path | None = None) -> Config:

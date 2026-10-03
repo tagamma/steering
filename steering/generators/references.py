@@ -309,6 +309,69 @@ def is_gitignored(target: str, bases: List[Path]) -> bool:
     return False
 
 
+def validate_auto_rule_wiring(ruleset: "RuleSet", output_dir: Path) -> List[str]:
+    """Check that the root AGENTS file @-references every auto-rule.
+
+    Nothing embeds auto-rules for Claude Code anymore: it reads the root
+    AGENTS.md natively and expands the ``@path`` imports in it, and that is
+    the only way an auto-rule reaches it (Cursor still gets them as
+    ``alwaysApply`` symlinks under ``.cursor/rules/``). So an auto-rule the
+    root AGENTS.md doesn't reference is silently dead for Claude Code -- and
+    invisible to every other tool that reads AGENTS.md as plain text.
+
+    Args:
+        ruleset: The loaded ruleset.
+        output_dir: Output directory (repository / generation root).
+
+    Returns:
+        One error per unwired auto-rule, or a single error when auto-rules
+        exist but there is no root AGENTS file to wire them from.
+    """
+    if not ruleset.auto:
+        return []
+
+    output_dir = Path(output_dir)
+    root_agents = next(
+        (r for r in ruleset.agents if r.path.parent.resolve() == output_dir.resolve()),
+        None,
+    )
+
+    def rel(path: Path) -> str:
+        try:
+            return str(path.relative_to(output_dir))
+        except ValueError:
+            return str(path)
+
+    if root_agents is None:
+        names = ", ".join(rel(r.path) for r in ruleset.auto)
+        return [
+            f"Auto-rules exist ({names}) but there is no root AGENTS.md to "
+            "@-reference them from, so Claude Code never loads them. Create "
+            "one and @-reference each auto-rule in it."
+        ]
+
+    referenced = set()
+    for ref in extract_references(root_agents.content):
+        if ref.kind != "at":
+            continue
+        for base in (root_agents.path.parent, output_dir):
+            candidate = base / ref.target
+            if candidate.is_file():
+                referenced.add(candidate.resolve())
+                break
+
+    errors: List[str] = []
+    for rule in ruleset.auto:
+        if rule.path.resolve() in referenced:
+            continue
+        errors.append(
+            f"Auto-rule '{rel(rule.path)}' is not @-referenced from "
+            f"{rel(root_agents.path)}; add '@{rel(rule.path)}' there so Claude "
+            "Code loads it."
+        )
+    return errors
+
+
 def validate_references(
     ruleset: "RuleSet", output_dir: Path, input_dir: Path
 ) -> List[str]:
