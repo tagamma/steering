@@ -4,10 +4,28 @@ from typing import Dict, List, Optional
 
 from ..discovery import Discovery
 from ..models import RuleSet
-from ..references import extract_references
+from ..references import extract_references, is_gitignored
 
 _REF_MAX_DEPTH = 3
 _REF_MAX_BYTES = 64 * 1024
+
+
+def _ref_base(ref: str, bases: List[Path]) -> Optional[Path]:
+    """The first base a reference resolves under, or None."""
+    return next((base for base in bases if (base / ref).exists()), None)
+
+
+def _is_host_local(ref: str, bases: List[Path]) -> bool:
+    """Whether a reference targets a gitignored (host-local) file.
+
+    Such files (e.g. a per-developer ``AGENTS.md.local``) are never embedded:
+    the generated rules are committed, so embedding would publish the file and
+    make the output differ between machines and from CI, where it is absent.
+    The ignore check runs against the base the reference resolves under, or
+    every base when it resolves under none (the file is absent in CI).
+    """
+    base = _ref_base(ref, bases)
+    return is_gitignored(ref, [base] if base is not None else bases)
 
 
 class CursorAdapter:
@@ -158,7 +176,10 @@ class CursorAdapter:
         cursor_rules_dir: Path,
         dry_run: bool,
     ) -> Dict[str, str]:
-        """Expand @refs in auto/contextual rules to ref-*.mdc (inherits parent globs/alwaysApply)."""
+        """Expand @refs in auto/contextual rules to ref-*.mdc (inherits parent globs/alwaysApply).
+
+        Gitignored (host-local) targets are skipped, as in the root embeds.
+        """
         files: Dict[str, str] = {}
 
         # Shared extractor: skips fenced code blocks and ignores emails/user@host.
@@ -169,15 +190,17 @@ class CursorAdapter:
         rule_dir = rule.path.parent
         for ref in references:
             # Resolve relative to the rule's dir, falling back to the repo root.
-            ref_path = rule_dir / ref
-            if not ref_path.exists():
-                ref_path = output_dir / ref
+            bases = [rule_dir, output_dir]
+            if _is_host_local(ref, bases):
+                continue
 
-            if not ref_path.exists():
+            ref_base = _ref_base(ref, bases)
+            if ref_base is None:
                 print(
                     f"WARN: Referenced file {ref} not found in {rule_dir} (from rule {rule.name})"
                 )
                 continue
+            ref_path = ref_base / ref
 
             try:
                 ref_content = ref_path.read_text(encoding="utf-8")
@@ -279,7 +302,7 @@ class CursorAdapter:
         dry_run: bool,
         skip: "set[Path] | None" = None,
     ) -> Dict[str, str]:
-        """Embed root AGENTS.md @refs as alwaysApply ref-*.mdc.
+        """Embed root AGENTS.md @refs as alwaysApply ref-*.mdc (gitignored targets excluded).
 
         ``skip`` holds resolved paths that already reach Cursor another way
         (the symlinked auto/contextual rules); references to them are not
@@ -303,13 +326,15 @@ class CursorAdapter:
 
             for ref in references:
                 # Relative to the AGENTS file's dir, falling back to the repo root.
-                ref_path = agents_dir / ref
-                if not ref_path.exists():
-                    ref_path = output_dir / ref
+                bases = [agents_dir, output_dir]
+                if _is_host_local(ref, bases):
+                    continue
 
-                if not ref_path.exists():
+                ref_base = _ref_base(ref, bases)
+                if ref_base is None:
                     print(f"WARN: Referenced file {ref} not found in {agents_dir}")
                     continue
+                ref_path = ref_base / ref
 
                 if ref_path.resolve() in skip:
                     continue
@@ -424,11 +449,17 @@ class CursorAdapter:
         seen: "set[Path]",
         depth: int = 1,
     ) -> str:
-        """Recursively embed @ref contents resolved from base_dir; seen dedupes/cycle-breaks."""
+        """Recursively embed @ref contents resolved from base_dir; seen dedupes/cycle-breaks.
+
+        Gitignored (host-local) targets are skipped, as in the root embeds.
+        """
         if depth > _REF_MAX_DEPTH:
             return ""
         out: List[str] = []
         for ref in (r.target for r in extract_references(content) if r.kind == "at"):
+            # Checked on the unresolved path: a gitignored symlink resolves out of the repo.
+            if _is_host_local(ref, [base_dir]):
+                continue
             ref_path = (base_dir / ref).resolve()
             if ref_path in seen:
                 continue

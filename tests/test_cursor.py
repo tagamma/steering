@@ -5,6 +5,7 @@ loads root and nested AGENTS.md natively but expands @refs nowhere, so the
 adapter must embed referenced files and must not repeat AGENTS.md bodies.
 """
 
+import subprocess
 from pathlib import Path
 
 from steering.generators.adapters.cursor import CursorAdapter
@@ -72,3 +73,41 @@ def test_root_agents_refs_embedded_but_symlinked_rules_skipped(tmp_path: Path):
     # ...the auto-rule is already a symlink, so it is not embedded a second time.
     assert ".cursor/rules/auto-a.mdc" in files
     assert not any("auto-rules-a" in name for name in files)
+
+
+def _gitignore_local(root: Path) -> None:
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    _write(root / ".gitignore", "/AGENTS.md.local\n")
+
+
+def test_gitignored_refs_never_embedded(tmp_path: Path, capsys):
+    # Generated rules are committed, so a host-local file must not leak into them.
+    _gitignore_local(tmp_path)
+    _write(tmp_path / "AGENTS.md.local", "PRIVATE")
+    _write(tmp_path / "README.md", "readme content")
+    root = _rule(tmp_path / "AGENTS.md", "agents", "@README.md\n@AGENTS.md.local\n")
+    nested = _rule(tmp_path / "nix/AGENTS.md", "agents", "@../AGENTS.md.local\n")
+    auto = _rule(
+        tmp_path / ".agents/auto-rules/a.mdc", "auto", "@AGENTS.md.local\n",
+        alwaysApply=True, globs=[],
+    )
+    ruleset = RuleSet(auto=[auto], contextual=[], agents=[root, nested], skills=[])
+
+    files = _generate(tmp_path, ruleset)
+
+    assert ".cursor/rules/ref-README.mdc" in files
+    assert not any("PRIVATE" in content for content in files.values())
+    assert not any(name.startswith(".cursor/rules/agents-") for name in files)
+    assert "WARN" not in capsys.readouterr().out
+
+
+def test_absent_gitignored_ref_does_not_warn(tmp_path: Path, capsys):
+    # In CI the host-local file is absent; that is expected, not a broken ref.
+    _gitignore_local(tmp_path)
+    root = _rule(tmp_path / "AGENTS.md", "agents", "@AGENTS.md.local\n")
+    ruleset = RuleSet(auto=[], contextual=[], agents=[root], skills=[])
+
+    files = _generate(tmp_path, ruleset)
+
+    assert not any(name.startswith(".cursor/rules/ref-") for name in files)
+    assert "WARN" not in capsys.readouterr().out

@@ -24,6 +24,7 @@ projects/steering/
    - **Symlinks**: Auto/contextual rules symlinked to `.cursor/rules/`.
    - **Root AGENTS.md**: `@` refs embedded as alwaysApply `ref-*.mdc`, skipping refs to the auto/contextual rules already symlinked.
    - **Nested AGENTS.md**: glob-scoped `agents-*.mdc` holding ONLY the expanded `@` refs (the body would load twice). Nothing is written when there are no refs.
+   - **Host-local refs**: gitignored `@` targets (`AGENTS.md.local`, `LOCALCONTEXT.md`) are never embedded (`is_gitignored`, checked before existence so CI doesn't warn). The output is committed, so embedding would leak the file and break the CI drift check. Cursor never sees them.
 
 2. **Claude Adapter (`adapters/claude.py`)**:
    - **No output**: Claude Code (v2.1.277+) reads `AGENTS.md` natively, root and nested, and expands `@path` imports in it. Auto-rules reach it only through `@` references in the root `AGENTS.md`, so `validate_auto_rule_wiring` (`references.py`) fails validation when one isn't referenced.

@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 
 from ..discovery import Discovery
 from ..models import RuleSet
+from ..references import is_gitignored
 
 
 class ContinueDevAdapter:
@@ -293,6 +294,10 @@ class ContinueDevAdapter:
             for ref in references:
                 # Resolve the referenced file path
                 ref_path = agents_dir / ref
+
+                # Host-local (gitignored) files stay out of the generated rules.
+                if is_gitignored(ref, [agents_dir]):
+                    continue
 
                 if not ref_path.exists():
                     print(f"WARN: Referenced file {ref} not found in {agents_dir}")
